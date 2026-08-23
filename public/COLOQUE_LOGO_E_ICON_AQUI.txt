@@ -1,0 +1,2 @@
+Coloque aqui os arquivos logo.png e icon.png enviados da Águia Express.
+O site V5 já está configurado para usar /logo.png e /icon.png automaticamente.

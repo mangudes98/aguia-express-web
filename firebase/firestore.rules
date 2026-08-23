@@ -1,0 +1,27 @@
+// ARQUIVO: firebase/firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    match /controle_codigos/{id} {
+      allow read, write: if signedIn();
+    }
+
+    match /empresas/{id} {
+      allow read, write: if signedIn();
+    }
+
+    match /usuarios/{id} {
+      allow read, write: if signedIn();
+    }
+
+    match /comunicados/{id} {
+      allow read, write: if signedIn();
+    }
+
+    match /devolucao/{id} {
+      allow read, write: if signedIn();
+    }
+  }
+}

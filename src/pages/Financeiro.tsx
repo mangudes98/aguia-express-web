@@ -1300,32 +1300,57 @@ export default function Financeiro() {
   }
 
   function pacotePertenceEmpresa(
-    pacote: AnyDoc,
-    empresa: AnyDoc
+  pacote: AnyDoc,
+  empresa: AnyDoc
+) {
+  const valoresPacote = [
+    pacote.empresaId,
+    pacote.empresa,
+    pacote.pasta,
+    pacote.coletaId,
+    pacote.coleta,
+  ]
+    .filter(Boolean)
+    .map(normalizar);
+
+  const valoresEmpresa = [
+    empresa.id,
+    empresa.nome,
+    empresa.razaoSocial,
+  ]
+    .filter(Boolean)
+    .map(normalizar);
+
+  // Verifica diretamente empresa
+  if (
+    valoresPacote.some((valor) =>
+      valoresEmpresa.includes(valor)
+    )
   ) {
-    const valores = [
-      pacote.empresaId,
-      pacote.empresa,
-      pacote.pasta,
-      pacote.coletaId,
-      pacote.coleta,
-    ]
-      .filter(Boolean)
-      .map(normalizar);
-
-    const alvo = [
-      empresa.id,
-      empresa.nome,
-      empresa.razaoSocial,
-    ]
-      .filter(Boolean)
-      .map(normalizar);
-
-    return valores.some(
-      (valor) =>
-        alvo.includes(valor)
-    );
+    return true;
   }
+
+  // CORREÇÃO:
+  // Verifica as pastas vinculadas à empresa
+  const pastasEmpresa = Array.isArray(
+    empresa.pastas
+  )
+    ? empresa.pastas
+        .filter(Boolean)
+        .map(normalizar)
+    : [];
+
+  if (
+    pastasEmpresa.length &&
+    valoresPacote.some((valor) =>
+      pastasEmpresa.includes(valor)
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
   function calcularRepasseUsuario(
     usuarioId: string

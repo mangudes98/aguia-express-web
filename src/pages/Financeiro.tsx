@@ -853,6 +853,9 @@ export default function Financeiro() {
   const [configGanhos, setConfigGanhos] =
     useState<AnyDoc[]>([]);
 
+  const [ganhos, setGanhos] =
+    useState<AnyDoc[]>([]);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -1038,26 +1041,31 @@ export default function Financeiro() {
         empresasSnap,
         coletasSnap,
         fechamentosSnap,
+        configGanhosSnap,
         ganhosSnap,
       ] = await Promise.all([
         listarRepasses().catch(() => []),
         listarUsuarios().catch(() => []),
+
         getDocs(
           collection(
             db,
             "controle_codigos"
           )
         ),
+
         getDocs(
           collection(db, "empresas")
         ).catch(() => ({
           docs: [],
         })),
+
         getDocs(
           collection(db, "coletas")
         ).catch(() => ({
           docs: [],
         })),
+
         getDocs(
           collection(
             db,
@@ -1066,10 +1074,20 @@ export default function Financeiro() {
         ).catch(() => ({
           docs: [],
         })),
+
         getDocs(
           collection(
             db,
             "config_ganhos"
+          )
+        ).catch(() => ({
+          docs: [],
+        })),
+
+        getDocs(
+          collection(
+            db,
+            "ganhos"
           )
         ).catch(() => ({
           docs: [],
@@ -1116,6 +1134,15 @@ export default function Financeiro() {
       );
 
       setConfigGanhos(
+        configGanhosSnap.docs.map(
+          (item: any) => ({
+            id: item.id,
+            ...item.data(),
+          })
+        )
+      );
+
+      setGanhos(
         ganhosSnap.docs.map(
           (item: any) => ({
             id: item.id,
@@ -1300,57 +1327,54 @@ export default function Financeiro() {
   }
 
   function pacotePertenceEmpresa(
-  pacote: AnyDoc,
-  empresa: AnyDoc
-) {
-  const valoresPacote = [
-    pacote.empresaId,
-    pacote.empresa,
-    pacote.pasta,
-    pacote.coletaId,
-    pacote.coleta,
-  ]
-    .filter(Boolean)
-    .map(normalizar);
-
-  const valoresEmpresa = [
-    empresa.id,
-    empresa.nome,
-    empresa.razaoSocial,
-  ]
-    .filter(Boolean)
-    .map(normalizar);
-
-  // Verifica diretamente empresa
-  if (
-    valoresPacote.some((valor) =>
-      valoresEmpresa.includes(valor)
-    )
+    pacote: AnyDoc,
+    empresa: AnyDoc
   ) {
-    return true;
-  }
+    const valoresPacote = [
+      pacote.empresaId,
+      pacote.empresa,
+      pacote.pasta,
+      pacote.coletaId,
+      pacote.coleta,
+    ]
+      .filter(Boolean)
+      .map(normalizar);
 
-  // CORREÇÃO:
-  // Verifica as pastas vinculadas à empresa
-  const pastasEmpresa = Array.isArray(
-    empresa.pastas
-  )
-    ? empresa.pastas
-        .filter(Boolean)
-        .map(normalizar)
-    : [];
+    const valoresEmpresa = [
+      empresa.id,
+      empresa.nome,
+      empresa.razaoSocial,
+    ]
+      .filter(Boolean)
+      .map(normalizar);
 
-  if (
-    pastasEmpresa.length &&
-    valoresPacote.some((valor) =>
-      pastasEmpresa.includes(valor)
+    if (
+      valoresPacote.some((valor) =>
+        valoresEmpresa.includes(valor)
+      )
+    ) {
+      return true;
+    }
+
+    const pastasEmpresa = Array.isArray(
+      empresa.pastas
     )
-  ) {
-    return true;
-  }
+      ? empresa.pastas
+          .filter(Boolean)
+          .map(normalizar)
+      : [];
 
-  return false;
-}
+    if (
+      pastasEmpresa.length &&
+      valoresPacote.some((valor) =>
+        pastasEmpresa.includes(valor)
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }
 
   function calcularRepasseUsuario(
     usuarioId: string
@@ -1368,6 +1392,9 @@ export default function Financeiro() {
     let totalML = 0;
     let totalShopee = 0;
     let totalAvulso = 0;
+
+    let creditos = 0;
+    let debitos = 0;
 
     const codigos =
       new Set<string>();
@@ -1459,7 +1486,8 @@ export default function Financeiro() {
         valor = n(
           config.ml ||
             config.valorML ||
-            config.mercadoLivre
+            config.mercadoLivre ||
+            config.valorMercadoLivre
         );
 
         qtdML += 1;
@@ -1509,6 +1537,79 @@ export default function Financeiro() {
       }
     });
 
+    ganhos.forEach((ganho) => {
+      const uid = String(
+        ganho.usuario ||
+          ganho.usuarioId ||
+          ganho.uid ||
+          ""
+      );
+
+      if (
+        normalizar(uid) !==
+        normalizar(usuarioId)
+      ) {
+        return;
+      }
+
+      const dataMov =
+        data(
+          ganho.data ||
+            ganho.dataCriacao ||
+            ganho.createdAt
+        );
+
+      if (
+        !dentroPeriodo(
+          dataMov,
+          inicioRepasse,
+          fimRepasse
+        )
+      ) {
+        return;
+      }
+
+      const valor =
+        n(ganho.valor);
+
+      const tipo =
+        normalizar(ganho.tipo);
+
+      if (tipo === "credito") {
+        creditos += valor;
+      }
+
+      if (tipo === "debito") {
+        debitos += valor;
+      }
+    });
+
+    const primeiraTransportadora =
+      transportadoras.values().next().value;
+
+    if (primeiraTransportadora) {
+      primeiraTransportadora.creditos =
+        creditos;
+
+      primeiraTransportadora.debitos =
+        debitos;
+    } else if (
+      creditos > 0 ||
+      debitos > 0
+    ) {
+      const t =
+        garantirTransportadora(
+          "sem_transportadora",
+          "Sem Transportadora"
+        );
+
+      t.creditos =
+        creditos;
+
+      t.debitos =
+        debitos;
+    }
+
     const porTransportadora =
       Array.from(
         transportadoras.values()
@@ -1529,7 +1630,9 @@ export default function Financeiro() {
     const totalGeral =
       totalML +
       totalShopee +
-      totalAvulso;
+      totalAvulso +
+      creditos -
+      debitos;
 
     return {
       usuarioId,
@@ -1570,8 +1673,8 @@ export default function Financeiro() {
         qtdShopee +
         qtdAvulso,
 
-      creditos: 0,
-      debitos: 0,
+      creditos,
+      debitos,
 
       porTransportadora,
 
@@ -1636,9 +1739,38 @@ export default function Financeiro() {
         }
       });
 
+      ganhos.forEach((ganho) => {
+        const uid = String(
+          ganho.usuario ||
+            ganho.usuarioId ||
+            ganho.uid ||
+            ""
+        );
+
+        if (!uid) return;
+
+        const dataMov =
+          data(
+            ganho.data ||
+              ganho.dataCriacao ||
+              ganho.createdAt
+          );
+
+        if (
+          dentroPeriodo(
+            dataMov,
+            inicioRepasse,
+            fimRepasse
+          )
+        ) {
+          ids.add(uid);
+        }
+      });
+
       return Array.from(ids);
     }, [
       pacotes,
+      ganhos,
       inicioRepasse,
       fimRepasse,
     ]);
@@ -1668,6 +1800,7 @@ export default function Financeiro() {
     }, [
       usuariosComEntrega,
       pacotes,
+      ganhos,
       configGanhos,
       coletas,
       items,
@@ -3328,8 +3461,8 @@ export default function Financeiro() {
                             style={{
                               verticalAlign:
                                 "middle",
-                                marginRight: 5,
-                              }}
+                              marginRight: 5,
+                            }}
                           />
                           Histórico
                         </button>

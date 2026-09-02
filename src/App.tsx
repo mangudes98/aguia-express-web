@@ -5,7 +5,6 @@ import AppLayout from "./components/layout/AppLayout";
 import Inicio from "./pages/Inicio";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Pacotes from "./pages/Pacotes";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Operacao from "./pages/Operacao";
@@ -38,7 +37,6 @@ export default function App() {
         <Route path="/login" element={<LoginRedirect />} />
         <Route element={<Protected />}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/pacotes" element={<Pacotes />} />
           <Route path="/pacotes/:id" element={<PacoteDetalhe />} />
           <Route path="/empresas" element={<Empresas />} />
           <Route path="/usuarios" element={<Usuarios />} />

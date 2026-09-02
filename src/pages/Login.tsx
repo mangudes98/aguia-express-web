@@ -3,6 +3,8 @@ import { FormEvent, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../services/firebase/firebase";
 
 export default function Login() {
   const { login } = useAuth();
@@ -14,7 +16,42 @@ export default function Login() {
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setErro(""); setBusy(true);
-    try { await login(email, senha); navigate("/dashboard", { replace: true }); }
+    try {
+  await login(email, senha);
+
+  const usuario = auth.currentUser;
+
+  if (!usuario) {
+    throw new Error("Usuário não encontrado.");
+  }
+
+  let userDoc = await getDoc(
+    doc(db, "usuarios", usuario.uid)
+  );
+
+  if (!userDoc.exists() && usuario.email) {
+    userDoc = await getDoc(
+      doc(db, "usuarios", usuario.email.toLowerCase())
+    );
+  }
+
+  if (!userDoc.exists()) {
+    throw new Error("Cadastro do usuário não encontrado.");
+  }
+
+  const userData = userDoc.data();
+
+  if (userData?.tipo === "admin") {
+    navigate("/dashboard", { replace: true });
+  } else if (userData?.tipo === "empresa") {
+    navigate("/empresas", { replace: true });
+  } else if (userData?.tipo === "operador") {
+    navigate("/empresas", { replace: true });
+  } else {
+    navigate("/dashboard", { replace: true });
+  }
+
+}
     catch { setErro("E-mail ou senha inválidos."); }
     finally { setBusy(false); }
   }

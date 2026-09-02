@@ -1,6 +1,6 @@
 // ARQUIVO: src/components/layout/AppLayout.tsx
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Building2,
@@ -19,10 +19,31 @@ import {
   X,
 } from "lucide-react";
 
+import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
+import { db } from "../../services/firebase/firebase";
 import logoIcon from "../../assets/icon.png";
 
-const links = [
+type Permissoes = {
+  usuarios?: boolean;
+  empresas?: boolean;
+  financeiro?: boolean;
+  coleta?: boolean;
+  comunicados?: boolean;
+  pesquisa?: boolean;
+  devolucao?: boolean;
+  editarPacote?: boolean;
+  finalizados?: boolean;
+  roleta?: boolean;
+};
+
+type LinkItem = readonly [
+  string,
+  string,
+  typeof LayoutDashboard,
+];
+
+const links: LinkItem[] = [
   ["Dashboard", "/dashboard", LayoutDashboard],
   ["Empresas", "/empresas", Building2],
   ["Usuários", "/usuarios", Users],
@@ -32,11 +53,13 @@ const links = [
   ["Mapa", "/mapa", Map],
   ["Financeiro", "/financeiro", CircleDollarSign],
   ["Configurações", "/configuracoes", Settings],
-] as const;
+];
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
+
+  const [linksVisiveis, setLinksVisiveis] = useState<LinkItem[]>([]);
 
   const { user, logout } = useAuth();
 
@@ -47,6 +70,131 @@ export default function AppLayout() {
 
   const inicial =
     nomeUsuario.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    let ativo = true;
+
+    const carregarPermissoes = async () => {
+      if (!user) {
+        if (ativo) {
+          setLinksVisiveis([]);
+        }
+        return;
+      }
+
+      try {
+        let userDoc = await getDoc(
+          doc(db, "usuarios", user.uid)
+        );
+
+        if (!userDoc.exists() && user.email) {
+          userDoc = await getDoc(
+            doc(
+              db,
+              "usuarios",
+              user.email.toLowerCase()
+            )
+          );
+        }
+
+        if (!userDoc.exists()) {
+          if (ativo) {
+            setLinksVisiveis([]);
+          }
+          return;
+        }
+
+        const dados = userDoc.data();
+
+        const tipo = String(
+          dados?.tipo || ""
+        ).toLowerCase();
+
+        const permissoes =
+          (dados?.permissoes || {}) as Permissoes;
+
+        // ============================================================
+        // ADMIN
+        // ACESSO TOTAL
+        // ============================================================
+
+        if (tipo === "admin") {
+          if (ativo) {
+            setLinksVisiveis(links);
+          }
+          return;
+        }
+
+        // ============================================================
+        // OPERADOR / EMPRESA / OUTROS
+        // MOSTRA SOMENTE O QUE POSSUI PERMISSÃO
+        // ============================================================
+
+        const permitidos = links.filter(
+          ([label]) => {
+            switch (label) {
+              // SOMENTE ADMIN
+              case "Dashboard":
+                return false;
+
+              // PERMISSÃO empresas
+              case "Empresas":
+                return permissoes.empresas === true;
+
+              // PERMISSÃO usuarios
+              case "Usuários":
+                return permissoes.usuarios === true;
+
+              // OPERAÇÃO USA A MESMA PERMISSÃO DE FINALIZADOS
+              case "Operação":
+                return permissoes.finalizados === true;
+
+              // PERMISSÃO coleta
+              case "Coletas":
+                return permissoes.coleta === true;
+
+              // PERMISSÃO pesquisa
+              case "Rastreamento":
+                return permissoes.pesquisa === true;
+
+              // ADMIN E OPERADOR
+              case "Mapa":
+  return tipo === "admin" || permissoes.finalizados === true;
+              // PERMISSÃO financeiro
+              case "Financeiro":
+                return permissoes.financeiro === true;
+
+              // SOMENTE ADMIN
+              case "Configurações":
+                return false;
+
+              default:
+                return false;
+            }
+          }
+        );
+
+        if (ativo) {
+          setLinksVisiveis(permitidos);
+        }
+      } catch (error) {
+        console.error(
+          "Erro ao carregar permissões:",
+          error
+        );
+
+        if (ativo) {
+          setLinksVisiveis([]);
+        }
+      }
+    };
+
+    carregarPermissoes();
+
+    return () => {
+      ativo = false;
+    };
+  }, [user]);
 
   return (
     <div className="app-shell">
@@ -936,7 +1084,7 @@ export default function AppLayout() {
             </div>
           )}
 
-          {links.map(
+          {linksVisiveis.map(
             ([label, to, Icon]) => (
 
               <NavLink

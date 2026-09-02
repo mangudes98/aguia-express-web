@@ -97,7 +97,11 @@ function usePermission() {
 
         // MESMA REGRA DO DASHBOARD:
         // APENAS ADMIN
-        setAllowed(userData?.tipo === "admin");
+        // ADMIN OU USUÁRIO COM PERMISSÃO DE FINALIZADOS
+setAllowed(
+  userData?.tipo === "admin" ||
+  userData?.permissoes?.finalizados === true
+);
       } catch (error) {
         console.error("Erro ao verificar permissão:", error);
         setAllowed(false);

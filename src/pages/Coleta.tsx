@@ -439,7 +439,11 @@ function usePermission() {
 
         // EXATAMENTE A MESMA REGRA DO DASHBOARD:
         // SOMENTE ADMIN
-        setAllowed(userData?.tipo === "admin");
+        // PERMISSÃO DE ACESSO
+setAllowed(
+  userData?.tipo === "admin" ||
+  userData?.permissoes?.coleta === true
+);
       } catch (error) {
         console.error("Erro ao verificar permissão:", error);
         setAllowed(false);

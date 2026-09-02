@@ -135,8 +135,7 @@ export default function AppLayout() {
             switch (label) {
               // SOMENTE ADMIN
               case "Dashboard":
-                return false;
-
+                return tipo === "admin" || permissoes.finalizados === true;
               // PERMISSÃO empresas
               case "Empresas":
                 return permissoes.empresas === true;

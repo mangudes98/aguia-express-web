@@ -40,6 +40,7 @@ import { db } from "../services/firebase/firebase";
 
 import logo from "../assets/logo.png";
 import Icon from "../assets/icon.png";
+import celular from "../assets/celular.png";
 
 type Entrega = Record<string, any>;
 
@@ -3010,30 +3011,19 @@ export default function Inicio() {
           >
 
             <img
-              src={logo}
-              alt="Águia Express"
-              style={{
-                width: 300,
-                maxWidth: "80%",
-                objectFit: "contain",
-                marginBottom: 20,
-              }}
-            />
+  src={celular}
+  alt="Tecnologia e rastreabilidade Águia Express"
+  style={{
+    width: "100%",
+    height: "410px",
+    objectFit: "cover",
+    display: "block",
+    margin: 0,
+    padding: 0,
+  }}
+/>
 
-            <span
-              style={{
-                marginTop: 4,
-                color: "#d6b33a",
-                fontSize: 8,
-                fontWeight: 800,
-                letterSpacing: 2,
-              }}
-            >
-              TECNOLOGIA A SERVIÇO DA OPERAÇÃO
-            </span>
-
-          </div>
-
+</div>
           <div>
 
             <span className="ae-kicker blue">

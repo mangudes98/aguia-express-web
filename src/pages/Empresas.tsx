@@ -1,13 +1,27 @@
 // ARQUIVO: src/pages/Empresas.tsx
 
 import {
+  type FormEvent,
   useEffect,
   useMemo,
   useState,
   type CSSProperties,
 } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  onAuthStateChanged,
+} from "firebase/auth";
+import { deleteApp, initializeApp } from "firebase/app";
 import {
   MapContainer,
   Marker,
@@ -53,6 +67,13 @@ type TelaAberta =
 type Empresa = {
   id: string;
   nome?: string;
+  valorML?: number;
+  valorShopee?: number;
+  valorAvulso?: number;
+  sistema?: string;
+  login?: string;
+  senha?: string;
+  observacoes?: string;
   pastas?: string[];
 };
 
@@ -350,6 +371,12 @@ export default function Empresas() {
   const [usuarioAtual, setUsuarioAtual] =
     useState<Usuario | null>(null);
 
+  const [cadastroAberto, setCadastroAberto] =
+    useState(false);
+
+  const [empresaEditando, setEmpresaEditando] =
+    useState<Empresa | null>(null);
+
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, "empresas"),
@@ -457,6 +484,13 @@ export default function Empresas() {
       ?.toLowerCase()
       .trim() === "empresa";
 
+  useEffect(() => {
+    if (!isAdmin) {
+      setCadastroAberto(false);
+      setEmpresaEditando(null);
+    }
+  }, [isAdmin]);
+
   const empresasVisiveis = useMemo(() => {
     if (isAdmin) return empresas;
 
@@ -536,15 +570,40 @@ export default function Empresas() {
     busca,
   ]);
 
+  if (cadastroAberto && isAdmin) {
+    return (
+      <CadastroEmpresa
+        key={empresaEditando?.id || "nova"}
+        empresa={empresaEditando}
+        usuarios={usuarios}
+        onCancelar={() => {
+          setCadastroAberto(false);
+          setEmpresaEditando(null);
+        }}
+        onSalvo={() => {
+          setCadastroAberto(false);
+          setEmpresaEditando(null);
+        }}
+      />
+    );
+  }
+
   if (empresaSelecionada) {
     return (
       <PainelEmpresa
         empresa={empresaSelecionada}
         codigos={codigos}
         usuarios={usuarios}
+        podeEditar={isAdmin}
         onVoltar={() =>
           setEmpresaSelecionada(null)
         }
+        onEditar={() => {
+          if (!isAdmin) return;
+          setEmpresaEditando(empresaSelecionada);
+          setEmpresaSelecionada(null);
+          setCadastroAberto(true);
+        }}
       />
     );
   }
@@ -562,6 +621,7 @@ export default function Empresas() {
             display: "flex",
             gap: 10,
             flexWrap: "wrap",
+            alignItems: "center",
             marginBottom: 18,
           }}
         >
@@ -581,6 +641,25 @@ export default function Empresas() {
               placeholder="Buscar empresa..."
             />
           </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setEmpresaEditando(null);
+                setCadastroAberto(true);
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Building2 size={17} />
+              Nova empresa
+            </button>
+          )}
 
         </div>
 
@@ -688,16 +767,833 @@ export default function Empresas() {
   );
 }
 
+type PastaCadastro = {
+  id: string;
+  nome?: string;
+};
+
+function valorInicialEmpresa(valor: number | undefined) {
+  return typeof valor === "number"
+    ? valor.toFixed(2)
+    : "0.00";
+}
+
+function CampoCadastro({
+  label,
+  value,
+  onChange,
+  type = "text",
+  required = false,
+  placeholder,
+  step,
+  min,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  required?: boolean;
+  placeholder?: string;
+  step?: string;
+  min?: string;
+}) {
+  return (
+    <label
+      style={{
+        display: "grid",
+        gap: 6,
+        color: "#334155",
+        fontSize: 13,
+        fontWeight: 700,
+      }}
+    >
+      {label}
+      <input
+        type={type}
+        value={value}
+        required={required}
+        placeholder={placeholder}
+        step={step}
+        min={min}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          minHeight: 42,
+          padding: "10px 12px",
+          border: "1px solid #dbe2ea",
+          borderRadius: 9,
+          background: "#fff",
+          color: "#17202d",
+          fontSize: 14,
+        }}
+      />
+    </label>
+  );
+}
+
+function CadastroEmpresa({
+  empresa,
+  usuarios,
+  onCancelar,
+  onSalvo,
+}: {
+  empresa: Empresa | null;
+  usuarios: Usuario[];
+  onCancelar: () => void;
+  onSalvo: () => void;
+}) {
+  const [nome, setNome] = useState(
+    empresa?.nome || ""
+  );
+  const [valorML, setValorML] = useState(
+    valorInicialEmpresa(empresa?.valorML)
+  );
+  const [valorShopee, setValorShopee] = useState(
+    valorInicialEmpresa(empresa?.valorShopee)
+  );
+  const [valorAvulso, setValorAvulso] = useState(
+    valorInicialEmpresa(empresa?.valorAvulso)
+  );
+  const [sistema, setSistema] = useState(
+    empresa?.sistema || ""
+  );
+  const [login, setLogin] = useState(
+    empresa?.login || ""
+  );
+  const [senha, setSenha] = useState(
+    empresa?.senha || ""
+  );
+  const [observacoes, setObservacoes] = useState(
+    empresa?.observacoes || ""
+  );
+  const [pastas, setPastas] = useState<string[]>(
+    empresa?.pastas || []
+  );
+  const [pastasDisponiveis, setPastasDisponiveis] =
+    useState<PastaCadastro[]>([]);
+  const [appLogin, setAppLogin] = useState("");
+  const [appSenha, setAppSenha] = useState("");
+  const [mostrarSenha, setMostrarSenha] =
+    useState(false);
+  const [mostrarSenhaApp, setMostrarSenhaApp] =
+    useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const usuarioVinculado = useMemo(
+    () =>
+      empresa
+        ? usuarios.find(
+            (usuario) =>
+              usuario.empresaId === empresa.id
+          ) || null
+        : null,
+    [empresa, usuarios]
+  );
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "coletas"),
+      (snapshot) => {
+        setPastasDisponiveis(
+          snapshot.docs
+            .map((item) => ({
+              id: item.id,
+              ...(item.data() as Omit<
+                PastaCadastro,
+                "id"
+              >),
+            }))
+            .sort((a, b) =>
+              String(a.nome || a.id).localeCompare(
+                String(b.nome || b.id)
+              )
+            )
+        );
+      },
+      () => setPastasDisponiveis([])
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!usuarioVinculado) return;
+
+    setAppLogin(
+      usuarioVinculado.email ||
+        usuarioVinculado.id ||
+        ""
+    );
+  }, [usuarioVinculado]);
+
+  function alternarPasta(pastaId: string) {
+    setPastas((atuais) =>
+      atuais.includes(pastaId)
+        ? atuais.filter((id) => id !== pastaId)
+        : [...atuais, pastaId]
+    );
+  }
+
+  async function criarOuSincronizarAcesso(
+    empresaId: string,
+    empresaNome: string
+  ) {
+    const email = appLogin.trim().toLowerCase();
+    const senhaAcesso = appSenha.trim();
+
+    if (!email) return;
+
+    if (usuarioVinculado) {
+      await updateDoc(
+        doc(db, "usuarios", usuarioVinculado.id),
+        {
+          empresaNome,
+          nome: empresaNome,
+        }
+      );
+      return;
+    }
+
+    // O segundo app mantém a sessão do administrador ativa
+    // enquanto o acesso da empresa é criado no Firebase Auth.
+    if (!senhaAcesso) return;
+
+    const appSecundario = initializeApp(
+      auth.app.options,
+      `cadastro-empresa-${Date.now()}`
+    );
+
+    try {
+      const authSecundario = getAuth(
+        appSecundario
+      );
+      const credencial =
+        await createUserWithEmailAndPassword(
+          authSecundario,
+          email,
+          senhaAcesso
+        );
+
+      await setDoc(doc(db, "usuarios", email), {
+        email,
+        uid: credencial.user.uid,
+        nome: empresaNome,
+        tipo: "empresa",
+        empresaId,
+        empresaNome,
+        permissoes: {
+          pacotes: true,
+          dashboard: true,
+        },
+        dataCriacao: serverTimestamp(),
+      });
+    } finally {
+      await deleteApp(appSecundario);
+    }
+  }
+
+  async function salvar(event: FormEvent) {
+    event.preventDefault();
+    setErro("");
+
+    const nomeEmpresa = nome.trim().toUpperCase();
+
+    if (!nomeEmpresa) {
+      setErro("Informe o nome da empresa.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const dados = {
+        nome: nomeEmpresa,
+        valorML:
+          Number(valorML.replace(",", ".")) || 0,
+        valorShopee:
+          Number(valorShopee.replace(",", ".")) || 0,
+        valorAvulso:
+          Number(valorAvulso.replace(",", ".")) || 0,
+        sistema: sistema.trim(),
+        login: login.trim(),
+        senha,
+        observacoes: observacoes.trim(),
+        pastas,
+        ativo: true,
+      };
+
+      let empresaId = empresa?.id || "";
+
+      if (empresa) {
+        await updateDoc(
+          doc(db, "empresas", empresa.id),
+          dados
+        );
+      } else {
+        const referencia = await addDoc(
+          collection(db, "empresas"),
+          {
+            ...dados,
+            criadoEm: serverTimestamp(),
+          }
+        );
+        empresaId = referencia.id;
+      }
+
+      await criarOuSincronizarAcesso(
+        empresaId,
+        nomeEmpresa
+      );
+
+      onSalvo();
+    } catch (error) {
+      const mensagem =
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar a empresa.";
+      setErro(`Erro ao salvar: ${mensagem}`);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 18,
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          type="button"
+          className="secondary"
+          onClick={onCancelar}
+        >
+          <ArrowLeft size={17} />
+          Voltar
+        </button>
+
+        <div>
+          <h2
+            style={{
+              margin: 0,
+              color: "#111827",
+            }}
+          >
+            {empresa
+              ? "Editar empresa"
+              : "Nova empresa"}
+          </h2>
+          <small style={{ color: "#6b7280" }}>
+            Este cadastro é exclusivo para administradores.
+          </small>
+        </div>
+      </div>
+
+      <form onSubmit={salvar}>
+        <section className="card">
+          <h3
+            style={{
+              margin: "0 0 14px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            🏢 IDENTIFICAÇÃO
+          </h3>
+
+          <CampoCadastro
+            label="Nome da empresa"
+            value={nome}
+            onChange={setNome}
+            required
+            placeholder="Nome da empresa"
+          />
+        </section>
+
+        <section
+          className="card"
+          style={{ marginTop: 16 }}
+        >
+          <h3
+            style={{
+              margin: "0 0 14px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            💰 VALORES POR PACOTE
+          </h3>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(190px,1fr))",
+              gap: 12,
+            }}
+          >
+            <CampoCadastro
+              label="Mercado Livre (R$)"
+              value={valorML}
+              onChange={setValorML}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <CampoCadastro
+              label="Shopee (R$)"
+              value={valorShopee}
+              onChange={setValorShopee}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <CampoCadastro
+              label="Avulso (R$)"
+              value={valorAvulso}
+              onChange={setValorAvulso}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+          </div>
+        </section>
+
+        <section
+          className="card"
+          style={{ marginTop: 16 }}
+        >
+          <h3
+            style={{
+              margin: "0 0 8px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            📁 PASTAS DA EMPRESA
+          </h3>
+          <p
+            style={{
+              margin: "0 0 14px",
+              color: "#64748b",
+              fontSize: 12,
+            }}
+          >
+            Selecione as pastas (coletas) que pertencem
+            a essa empresa.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            {pastasDisponiveis.map((pasta) => {
+              const selecionada = pastas.includes(
+                pasta.id
+              );
+
+              return (
+                <label
+                  key={pasta.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${
+                      selecionada
+                        ? "#c9a227"
+                        : "#e5e7eb"
+                    }`,
+                    background: selecionada
+                      ? "#fffaf0"
+                      : "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selecionada}
+                    onChange={() =>
+                      alternarPasta(pasta.id)
+                    }
+                  />
+                  <span
+                    style={{
+                      color: "#17202d",
+                      fontWeight: selecionada
+                        ? 700
+                        : 500,
+                    }}
+                  >
+                    {pasta.nome || pasta.id}
+                  </span>
+                  <small
+                    style={{
+                      marginLeft: "auto",
+                      color: "#94a3b8",
+                    }}
+                  >
+                    ID: {pasta.id}
+                  </small>
+                </label>
+              );
+            })}
+
+            {!pastasDisponiveis.length && (
+              <div
+                style={{
+                  padding: 16,
+                  color: "#64748b",
+                  background: "#f8fafc",
+                  borderRadius: 9,
+                }}
+              >
+                Nenhuma pasta encontrada na coleção
+                coletas.
+              </div>
+            )}
+          </div>
+
+          {pastas.length > 0 && (
+            <small
+              style={{
+                display: "block",
+                marginTop: 12,
+                color: "#9a7209",
+                fontWeight: 800,
+              }}
+            >
+              {pastas.length} pasta(s)
+              selecionada(s)
+            </small>
+          )}
+        </section>
+
+        <section
+          className="card"
+          style={{ marginTop: 16 }}
+        >
+          <h3
+            style={{
+              margin: "0 0 14px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            🖥️ SISTEMA DE RASTREIO
+          </h3>
+
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <CampoCadastro
+              label="Sistema utilizado (ex: Tracken)"
+              value={sistema}
+              onChange={setSistema}
+            />
+            <CampoCadastro
+              label="Login / e-mail do sistema"
+              value={login}
+              onChange={setLogin}
+              type="email"
+            />
+            <label
+              style={{
+                display: "grid",
+                gap: 6,
+                color: "#334155",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              Senha do sistema
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                }}
+              >
+                <input
+                  type={mostrarSenha ? "text" : "password"}
+                  value={senha}
+                  onChange={(event) =>
+                    setSenha(event.target.value)
+                  }
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 42,
+                    boxSizing: "border-box",
+                    padding: "10px 12px",
+                    border: "1px solid #dbe2ea",
+                    borderRadius: 9,
+                    color: "#17202d",
+                    background: "#fff",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    setMostrarSenha((atual) => !atual)
+                  }
+                  aria-label={
+                    mostrarSenha
+                      ? "Ocultar senha"
+                      : "Mostrar senha"
+                  }
+                >
+                  {mostrarSenha ? "Ocultar" : "Ver"}
+                </button>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section
+          className="card"
+          style={{ marginTop: 16 }}
+        >
+          <h3
+            style={{
+              margin: "0 0 8px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            🔐 ACESSO DA EMPRESA AO APP
+          </h3>
+          <p
+            style={{
+              margin: "0 0 14px",
+              color: "#64748b",
+              fontSize: 12,
+            }}
+          >
+            Crie um acesso próprio para a empresa
+            acompanhar os pacotes dela no app.
+          </p>
+
+          {usuarioVinculado && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                color: "#166534",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              ✓ Login já criado:{" "}
+              {usuarioVinculado.email ||
+                usuarioVinculado.id}
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(220px,1fr))",
+              gap: 12,
+            }}
+          >
+            <CampoCadastro
+              label="E-mail de acesso da empresa"
+              value={appLogin}
+              onChange={setAppLogin}
+              type="email"
+            />
+            <label
+              style={{
+                display: "grid",
+                gap: 6,
+                color: "#334155",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {usuarioVinculado
+                ? "Senha (login já criado)"
+                : "Senha de acesso da empresa"}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                }}
+              >
+                <input
+                  type={
+                    mostrarSenhaApp
+                      ? "text"
+                      : "password"
+                  }
+                  value={appSenha}
+                  onChange={(event) =>
+                    setAppSenha(event.target.value)
+                  }
+                  disabled={!!usuarioVinculado}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 42,
+                    boxSizing: "border-box",
+                    padding: "10px 12px",
+                    border: "1px solid #dbe2ea",
+                    borderRadius: 9,
+                    color: "#17202d",
+                    background: usuarioVinculado
+                      ? "#f1f5f9"
+                      : "#fff",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    setMostrarSenhaApp(
+                      (atual) => !atual
+                    )
+                  }
+                  aria-label={
+                    mostrarSenhaApp
+                      ? "Ocultar senha"
+                      : "Mostrar senha"
+                  }
+                >
+                  {mostrarSenhaApp ? "Ocultar" : "Ver"}
+                </button>
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section
+          className="card"
+          style={{ marginTop: 16 }}
+        >
+          <h3
+            style={{
+              margin: "0 0 14px",
+              color: "#9a7209",
+              fontSize: 13,
+              letterSpacing: ".06em",
+            }}
+          >
+            📝 OBSERVAÇÕES
+          </h3>
+          <textarea
+            value={observacoes}
+            onChange={(event) =>
+              setObservacoes(event.target.value)
+            }
+            rows={4}
+            placeholder="Anotações livres..."
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              resize: "vertical",
+              padding: 12,
+              border: "1px solid #dbe2ea",
+              borderRadius: 9,
+              color: "#17202d",
+              background: "#fff",
+              fontFamily: "inherit",
+              fontSize: 14,
+            }}
+          />
+        </section>
+
+        {erro && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 16,
+              padding: 12,
+              color: "#991b1b",
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 9,
+              fontSize: 13,
+            }}
+          >
+            {erro}
+          </div>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            marginTop: 18,
+            marginBottom: 30,
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            type="button"
+            className="secondary"
+            onClick={onCancelar}
+            disabled={salvando}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            className="primary"
+            disabled={salvando}
+          >
+            {salvando
+              ? "Salvando..."
+              : empresa
+                ? "Salvar alterações"
+                : "Salvar empresa"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function PainelEmpresa({
   empresa,
   codigos,
   usuarios,
+  podeEditar,
   onVoltar,
+  onEditar,
 }: {
   empresa: Empresa;
   codigos: Codigo[];
   usuarios: Usuario[];
+  podeEditar: boolean;
   onVoltar: () => void;
+  onEditar: () => void;
 }) {
   const [filtro, setFiltro] =
     useState<Filtro>("hoje");
@@ -1066,6 +1962,19 @@ function PainelEmpresa({
             Painel da empresa
           </small>
         </div>
+
+          {podeEditar && (
+            <button
+              type="button"
+              className="primary"
+              onClick={onEditar}
+              style={{
+                marginLeft: "auto",
+              }}
+            >
+              Editar empresa
+            </button>
+          )}
       </div>
 
       <section

@@ -1197,7 +1197,7 @@ export default function Mapa() {
 
             <TileLayer
               attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_2sk6_1_9337bda9074165b27049c045"
               subdomains="abcd"
               maxZoom={20}
             />

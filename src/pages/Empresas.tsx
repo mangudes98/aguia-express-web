@@ -33,6 +33,7 @@ import L from "leaflet";
 import {
   ArrowLeft,
   Building2,
+  Camera,
   ChevronRight,
   Map,
   Package,
@@ -3674,87 +3675,74 @@ function Comprovante({
             </div>
 
             {/* DIREITA - FOTOS */}
-            {fotos.length > 0 && (
+            <section
+              style={{
+                minWidth: 0,
+                padding: "12px 14px",
+                borderLeft: "1px solid #edf0f3",
+              }}
+            >
               <div
                 style={{
-                  minWidth: 0,
                   display: "flex",
-                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 10,
+                  color: "#1f2937",
+                  fontSize: 13,
+                  fontWeight: 900,
                 }}
               >
-                <small
-                  style={{
-                    display: "block",
-                    color: "#64748b",
-                    fontWeight: 800,
-                    fontSize: 8,
-                    letterSpacing: ".08em",
-                    marginBottom: 6,
-                  }}
-                >
-                  COMPROVANTE FOTOGRÁFICO
-                </small>
+                <Camera size={16} color="#c9a227" />
+                Comprovante fotográfico
+              </div>
 
+              {fotos.length > 0 ? (
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      fotos.length === 1
-                        ? "1fr"
-                        : "repeat(2, minmax(0, 1fr))",
-                    gap: 7,
-                    flex: 1,
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: 6,
                   }}
                 >
                   {fotos.map((foto, index) => (
-                    <button
+                    <img
                       key={`${foto}-${index}`}
-                      type="button"
+                      src={foto}
+                      alt={`Comprovante ${index + 1}`}
                       onClick={() => setFotoAberta(foto)}
                       style={{
-                        position: "relative",
+                        width: "100%",
+                        height: 130,
+                        objectFit: "cover",
                         border: "1px solid #e5e7eb",
-                        borderRadius: 10,
-                        padding: 0,
-                        overflow: "hidden",
+                        borderRadius: 8,
                         background: "#f8fafc",
                         cursor: "zoom-in",
-                        minHeight:
-                          fotos.length === 1 ? "420px" : "190px",
                       }}
-                    >
-                      <img
-                        src={foto}
-                        alt={`Comprovante ${index + 1}`}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          maxHeight: fotos.length === 1 ? "600px" : "250px",
-                          objectFit: "contain",
-                          display: "block",
-                        }}
-                      />
-
-                      <span
-                        style={{
-                          position: "absolute",
-                          right: 7,
-                          bottom: 7,
-                          background: "rgba(15,23,42,.78)",
-                          color: "#fff",
-                          padding: "5px 8px",
-                          borderRadius: 7,
-                          fontSize: 10,
-                          fontWeight: 800,
-                        }}
-                      >
-                        CLIQUE PARA AMPLIAR
-                      </span>
-                    </button>
+                    />
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div
+                  style={{
+                    minHeight: 92,
+                    padding: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: 10,
+                    color: "#64748b",
+                    fontSize: 11,
+                  }}
+                >
+                  <Camera size={17} />
+                  Nenhuma foto registrada.
+                </div>
+              )}
+            </section>
           </div>
         </article>
       </div>

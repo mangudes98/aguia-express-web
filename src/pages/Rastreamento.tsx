@@ -128,7 +128,7 @@ function pontoHistoricoRastreamento(
     total > 1 ? index / (total - 1) : 0;
 
   return {
-    x: 18 + proporcao * 324,
+    x: 46 + proporcao * 268,
     y: ondulacao[index % ondulacao.length],
   };
 }
@@ -1582,10 +1582,11 @@ export default function Rastreamento() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 4px;
+          gap: 3px;
           padding: 0;
           transform: translateX(-50%);
           white-space: nowrap;
+          max-width: 64px;
         }
 
         .historico-item:last-child {
@@ -1605,8 +1606,8 @@ export default function Rastreamento() {
           position: relative;
           top: auto;
           left: auto;
-          width: 11px;
-          height: 11px;
+          width: 9px;
+          height: 9px;
           border-radius: 50%;
           border: 2px solid #fff;
           z-index: 1;
@@ -1616,12 +1617,18 @@ export default function Rastreamento() {
           color: #1f2937;
           font-size: 11px;
           font-weight: 800;
+          line-height: 1;
+          text-align: center;
+          white-space: normal;
         }
 
         .historico-data {
           color: #94a3b8;
-          font-size: 09px;
-          margin-top: 3px;
+          font-size: 9px;
+          line-height: 1.15;
+          margin-top: 2px;
+          text-align: center;
+          white-space: normal;
         }
 
         .endereco-carregando {

@@ -35,10 +35,13 @@ import {
   Building2,
   Camera,
   ChevronRight,
+  History,
   Map,
+  MapPin,
   Package,
   Search,
   Truck,
+  User,
   UserX,
   X,
 } from "lucide-react";
@@ -157,6 +160,20 @@ function corStatus(status: string = "") {
   return "#94a3b8";
 }
 
+function pontoHistoricoEmpresas(
+  index: number,
+  total: number
+) {
+  const ondulacao = [16, 52, 28, 66, 40, 58];
+  const proporcao =
+    total > 1 ? index / (total - 1) : 0;
+
+  return {
+    x: 46 + proporcao * 268,
+    y: ondulacao[index % ondulacao.length],
+  };
+}
+
 function Info({
   titulo,
   valor,
@@ -250,6 +267,7 @@ function getLat(pacote: Codigo) {
   const valor =
     pacote.latitudeEntrega ??
     pacote.latitude ??
+    pacote.lat ??
     null;
 
   if (
@@ -270,6 +288,7 @@ function getLng(pacote: Codigo) {
   const valor =
     pacote.longitudeEntrega ??
     pacote.longitude ??
+    pacote.lng ??
     null;
 
   if (
@@ -284,6 +303,65 @@ function getLng(pacote: Codigo) {
   return Number.isFinite(numero)
     ? numero
     : null;
+}
+
+type EnderecoEmpresas = {
+  rua: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+};
+
+async function buscarEnderecoEmpresas(
+  latitude: number,
+  longitude: number
+): Promise<EnderecoEmpresas | null> {
+  try {
+    const resposta = await fetch(
+      "https://nominatim.openstreetmap.org/reverse" +
+        `?lat=${encodeURIComponent(latitude)}` +
+        `&lon=${encodeURIComponent(longitude)}` +
+        "&format=json&addressdetails=1&accept-language=pt-BR",
+      { headers: { Accept: "application/json" } }
+    );
+
+    if (!resposta.ok) return null;
+
+    const address = (await resposta.json())?.address;
+    if (!address) return null;
+
+    return {
+      rua:
+        address.road ||
+        address.pedestrian ||
+        address.residential ||
+        address.street ||
+        "",
+      numero: address.house_number || "",
+      bairro:
+        address.suburb ||
+        address.neighbourhood ||
+        address.city_district ||
+        address.quarter ||
+        "",
+      cidade:
+        address.city ||
+        address.town ||
+        address.municipality ||
+        address.village ||
+        "",
+      estado: address.state || "",
+      cep: address.postcode || "",
+    };
+  } catch (error) {
+    console.error(
+      "Erro ao buscar endereço da empresa:",
+      error
+    );
+    return null;
+  }
 }
 
 function criarIconeMapa(pacote: Codigo) {
@@ -2706,7 +2784,7 @@ function PainelEmpresa({
       )}
 
       {pacoteComprovante && (
-        <Comprovante
+        <ComprovanteOrganizado
           pacote={pacoteComprovante}
           usuarios={usuarios}
           onFechar={() =>
@@ -3378,6 +3456,18 @@ function Comprovante({
 
   const lat = getLat(pacote);
   const lng = getLng(pacote);
+  const historico = Array.isArray(dados.historico)
+    ? dados.historico
+    : [];
+  const alturaHistorico = historico.length ? 122 : 64;
+  const pontosHistorico = historico.map(
+    (_item: any, index: number) => ({
+      ...pontoHistoricoEmpresas(
+        index,
+        historico.length
+      ),
+    })
+  );
 
   return (
     <>
@@ -3541,6 +3631,165 @@ function Comprovante({
                   {status}
                 </span>
               </div>
+
+              {/* HISTÓRICO */}
+              <section
+                style={{
+                  padding: "10px 10px 8px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 9,
+                  background: "#fff",
+                  minWidth: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    marginBottom: 8,
+                    color: "#1f2937",
+                    fontSize: 13,
+                    fontWeight: 900,
+                  }}
+                >
+                  <History size={16} color="#c9a227" />
+                  Histórico da encomenda
+                </div>
+
+                {historico.length > 0 ? (
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "block",
+                      height: alturaHistorico,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <svg
+                      viewBox={`0 0 360 ${alturaHistorico}`}
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        width: "100%",
+                        height: "100%",
+                        overflow: "visible",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {pontosHistorico
+                        .slice(0, -1)
+                        .map(
+                          (
+                            ponto: { x: number; y: number },
+                            index: number
+                          ) => {
+                            const proximo =
+                              pontosHistorico[index + 1];
+                            if (!proximo) return null;
+                            const meioX =
+                              (ponto.x + proximo.x) / 2;
+                            const caminho =
+                              `M ${ponto.x} ${ponto.y} ` +
+                              `C ${meioX} ${ponto.y}, ` +
+                              `${meioX} ${proximo.y}, ` +
+                              `${proximo.x} ${proximo.y}`;
+
+                            return (
+                              <path
+                                key={index}
+                                d={caminho}
+                                fill="none"
+                                stroke={corStatus(
+                                  historico[index]?.status
+                                )}
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                opacity=".65"
+                              />
+                            );
+                          }
+                        )}
+                    </svg>
+
+                    {historico.map((item: any, index: number) => (
+                      <div
+                        key={index}
+                        style={{
+                          position: "absolute",
+                          left: `${(pontosHistorico[index].x / 360) * 100}%`,
+                          top: pontosHistorico[index].y - 5,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 3,
+                          maxWidth: 64,
+                          transform: "translateX(-50%)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 9,
+                            height: 9,
+                            borderRadius: "50%",
+                            border: "2px solid #fff",
+                            background: corStatus(item?.status),
+                            boxShadow: `0 0 0 3px ${corStatus(
+                              item?.status
+                            )}22`,
+                            flex: "0 0 auto",
+                            zIndex: 1,
+                          }}
+                        />
+                        <div style={{ textAlign: "center" }}>
+                          <div
+                            style={{
+                              color: corStatus(item?.status),
+                              fontSize: 11,
+                              fontWeight: 800,
+                              lineHeight: 1,
+                              textAlign: "center",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            {item?.status || "Atualização"}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: 2,
+                              color: "#94a3b8",
+                              fontSize: 9,
+                              lineHeight: 1.15,
+                              textAlign: "center",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            {formatarData(item?.dataHora)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      minHeight: 64,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 7,
+                      color: "#64748b",
+                      fontSize: 11,
+                    }}
+                  >
+                    <History size={17} />
+                    Nenhum histórico registrado.
+                  </div>
+                )}
+              </section>
 
               {/* DADOS */}
               <div
@@ -3786,6 +4035,726 @@ function Comprovante({
             <X size={22} />
           </button>
 
+          <img
+            src={fotoAberta}
+            alt="Comprovante ampliado"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              maxWidth: "96vw",
+              maxHeight: "94vh",
+              width: "auto",
+              height: "auto",
+              objectFit: "contain",
+              borderRadius: 8,
+              boxShadow: "0 20px 80px rgba(0,0,0,.5)",
+              display: "block",
+            }}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function ComprovanteOrganizado({
+  pacote,
+  usuarios,
+  onFechar,
+}: {
+  pacote: Codigo;
+  usuarios: Usuario[];
+  onFechar: () => void;
+}) {
+  const dados = pacote as any;
+  const [fotoAberta, setFotoAberta] = useState<string | null>(null);
+
+  const fotos: string[] = [];
+  if (Array.isArray(dados.fotos)) {
+    dados.fotos.forEach((foto: any) => {
+      const url = String(foto || "").trim();
+      if (url && !fotos.includes(url)) fotos.push(url);
+    });
+  }
+
+  [
+    dados.fotoUrl,
+    dados.fotoEntrega,
+    dados.fotoEntregue,
+    dados.foto,
+    dados.imagem,
+    dados.comprovanteFoto,
+  ].forEach((foto) => {
+    const url = String(foto || "").trim();
+    if (url && !fotos.includes(url)) fotos.push(url);
+  });
+
+  const usuarioId = String(
+    dados.usuarioFinalizacao || dados.usuario || ""
+  );
+  const usuario = usuarios.find(
+    (item) => item.id?.toLowerCase() === usuarioId.toLowerCase()
+  );
+  const entregador =
+    dados.usuarioNome ||
+    usuario?.nome ||
+    usuarioId ||
+    "-";
+  const status = String(dados.status || "-").toUpperCase();
+  const recebedor =
+    dados.nomeRecebedor ||
+    dados.recebedor ||
+    dados.destinatario ||
+    dados.nome ||
+    "-";
+  const documento =
+    dados.documentoRecebedor ||
+    dados.documento ||
+    "-";
+  const observacao =
+    dados.observacao ||
+    dados.observações ||
+    "-";
+  const enderecoInicial: EnderecoEmpresas = {
+    rua: String(dados.rua || dados.logradouro || ""),
+    numero: String(dados.numero || dados.number || ""),
+    bairro: String(
+      dados.bairro ||
+        dados.neighborhood ||
+        dados.suburb ||
+        ""
+    ),
+    cidade: String(
+      dados.cidade ||
+        dados.municipio ||
+        dados.city ||
+        ""
+    ),
+    estado: String(
+      dados.estado ||
+        dados.uf ||
+        dados.state ||
+        ""
+    ),
+    cep: String(
+      dados.cep ||
+        dados.CEP ||
+        dados.postcode ||
+        ""
+    ),
+  };
+  const [enderecoAutomatico, setEnderecoAutomatico] =
+    useState<EnderecoEmpresas>(enderecoInicial);
+  const [buscandoEndereco, setBuscandoEndereco] =
+    useState(false);
+  const lat = getLat(pacote);
+  const lng = getLng(pacote);
+
+  useEffect(() => {
+    let ativo = true;
+
+    if (lat === null || lng === null) {
+      setEnderecoAutomatico(enderecoInicial);
+      setBuscandoEndereco(false);
+      return () => {
+        ativo = false;
+      };
+    }
+
+    setBuscandoEndereco(true);
+    buscarEnderecoEmpresas(lat, lng)
+      .then((encontrado) => {
+        if (!ativo || !encontrado) return;
+
+        setEnderecoAutomatico({
+          rua: encontrado.rua || enderecoInicial.rua,
+          numero:
+            encontrado.numero || enderecoInicial.numero,
+          bairro:
+            encontrado.bairro || enderecoInicial.bairro,
+          cidade:
+            encontrado.cidade || enderecoInicial.cidade,
+          estado:
+            encontrado.estado || enderecoInicial.estado,
+          cep: encontrado.cep || enderecoInicial.cep,
+        });
+      })
+      .finally(() => {
+        if (ativo) setBuscandoEndereco(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [pacote, lat, lng]);
+
+  const endereco = [
+    enderecoAutomatico.rua,
+    enderecoAutomatico.numero,
+    enderecoAutomatico.bairro,
+    enderecoAutomatico.cidade,
+    enderecoAutomatico.estado,
+    enderecoAutomatico.cep,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const enderecoSalvo = String(
+    dados.enderecoCompleto || ""
+  ).trim();
+  const enderecoExibido = endereco || enderecoSalvo;
+  const historico = Array.isArray(dados.historico)
+    ? dados.historico
+    : [];
+  const alturaHistorico = historico.length ? 122 : 64;
+  const pontosHistorico = historico.map(
+    (_item: any, index: number) => ({
+      ...pontoHistoricoEmpresas(
+        index,
+        historico.length
+      ),
+    })
+  );
+
+  return (
+    <>
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={onFechar}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 10000,
+          background: "rgba(15,23,42,.60)",
+          backdropFilter: "blur(6px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 12,
+        }}
+      >
+        <article
+          onClick={(event) => event.stopPropagation()}
+          style={{
+            width: "min(96vw, 940px)",
+            maxHeight: "94vh",
+            overflowY: "auto",
+            background: "#fff",
+            borderRadius: 14,
+            boxShadow: "0 25px 70px rgba(15,23,42,.35)",
+          }}
+        >
+          <header
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              padding: "12px 14px",
+              borderBottom: "1px solid #edf0f3",
+            }}
+          >
+            <div>
+              <small
+                style={{
+                  color: "#9a7209",
+                  fontWeight: 800,
+                  letterSpacing: ".08em",
+                }}
+              >
+                COMPROVANTE DE ENTREGA
+              </small>
+              <h2
+                style={{
+                  margin: "3px 0 0",
+                  color: "#17202d",
+                  fontSize: 18,
+                  wordBreak: "break-word",
+                }}
+              >
+                {pacote.codigo || pacote.id}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onFechar}
+              aria-label="Fechar comprovante"
+              style={{
+                width: 32,
+                height: 32,
+                display: "grid",
+                placeItems: "center",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+                background: "#f8fafc",
+                cursor: "pointer",
+              }}
+            >
+              <X size={17} />
+            </button>
+          </header>
+
+          {/* IDENTIFICAÇÃO | HISTÓRICO */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              borderBottom: "1px solid #edf0f3",
+            }}
+          >
+            <section
+              style={{
+                minWidth: 0,
+                padding: "12px 14px",
+                borderRight: "1px solid #edf0f3",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 10,
+                  color: "#1f2937",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                <Package size={16} color="#c9a227" />
+                Identificação
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gap: 6,
+                }}
+              >
+                <Info titulo="STATUS" valor={status} />
+                <Info
+                  titulo="TIPO"
+                  valor={normalizarTipo(pacote.tipo)}
+                />
+                <Info
+                  titulo="EMPRESA"
+                  valor={pacote.empresa || "-"}
+                />
+                <Info titulo="ENTREGADOR" valor={entregador} />
+                <Info
+                  titulo="DATA DA ENTREGA"
+                  valor={formatarData(
+                    dados.dataHoraBaixa ||
+                      dados.dataHora ||
+                      dados.data
+                  )}
+                />
+              </div>
+            </section>
+
+            <section
+              style={{
+                minWidth: 0,
+                padding: "12px 14px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 10,
+                  color: "#1f2937",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                <History size={16} color="#c9a227" />
+                Histórico da encomenda
+              </div>
+              {historico.length > 0 ? (
+                <div
+                  style={{
+                    position: "relative",
+                    height: alturaHistorico,
+                    overflow: "hidden",
+                  }}
+                >
+                  <svg
+                    viewBox={`0 0 360 ${alturaHistorico}`}
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "100%",
+                      height: "100%",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {pontosHistorico
+                      .slice(0, -1)
+                      .map(
+                        (
+                          ponto: { x: number; y: number },
+                          index: number
+                        ) => {
+                          const proximo =
+                            pontosHistorico[index + 1];
+                          if (!proximo) return null;
+                          const meioX =
+                            (ponto.x + proximo.x) / 2;
+                          const caminho =
+                            `M ${ponto.x} ${ponto.y} ` +
+                            `C ${meioX} ${ponto.y}, ` +
+                            `${meioX} ${proximo.y}, ` +
+                            `${proximo.x} ${proximo.y}`;
+                          return (
+                            <path
+                              key={index}
+                              d={caminho}
+                              fill="none"
+                              stroke={corStatus(
+                                historico[index]?.status
+                              )}
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              opacity=".65"
+                            />
+                          );
+                        }
+                      )}
+                  </svg>
+                  {historico.map((item: any, index: number) => (
+                    <div
+                      key={index}
+                      style={{
+                        position: "absolute",
+                        left: `${(pontosHistorico[index].x / 360) * 100}%`,
+                        top: pontosHistorico[index].y - 5,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 3,
+                        maxWidth: 64,
+                        transform: "translateX(-50%)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: "50%",
+                          border: "2px solid #fff",
+                          background: corStatus(item?.status),
+                          boxShadow: `0 0 0 3px ${corStatus(
+                            item?.status
+                          )}22`,
+                        }}
+                      />
+                      <div style={{ textAlign: "center" }}>
+                        <div
+                          style={{
+                            color: corStatus(item?.status),
+                            fontSize: 11,
+                            fontWeight: 800,
+                            lineHeight: 1,
+                            whiteSpace: "normal",
+                          }}
+                        >
+                          {item?.status || "Atualização"}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 2,
+                            color: "#94a3b8",
+                            fontSize: 9,
+                            lineHeight: 1.15,
+                            whiteSpace: "normal",
+                          }}
+                        >
+                          {formatarData(item?.dataHora)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    minHeight: 64,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    color: "#64748b",
+                    fontSize: 11,
+                  }}
+                >
+                  <History size={17} />
+                  Nenhum histórico registrado.
+                </div>
+              )}
+            </section>
+          </div>
+
+          {/* RECEBEDOR | COMPROVANTE FOTOGRÁFICO */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              borderBottom: "1px solid #edf0f3",
+            }}
+          >
+            <section
+              style={{
+                minWidth: 0,
+                padding: "12px 14px",
+                borderRight: "1px solid #edf0f3",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 10,
+                  color: "#1f2937",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                <User size={16} color="#c9a227" />
+                Recebedor
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gap: 6,
+                }}
+              >
+                <Info titulo="NOME" valor={recebedor} />
+                <Info titulo="DOCUMENTO" valor={documento} />
+              </div>
+              {observacao !== "-" && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: "8px 10px",
+                    border: "1px solid #fef3c7",
+                    borderRadius: 8,
+                    background: "#fffbeb",
+                    color: "#713f12",
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {observacao}
+                </div>
+              )}
+            </section>
+
+            <section
+              style={{
+                minWidth: 0,
+                padding: "12px 14px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 10,
+                  color: "#1f2937",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                <Camera size={16} color="#c9a227" />
+                Comprovante fotográfico
+              </div>
+              {fotos.length > 0 ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: 6,
+                  }}
+                >
+                  {fotos.map((foto, index) => (
+                    <img
+                      key={`${foto}-${index}`}
+                      src={foto}
+                      alt={`Comprovante ${index + 1}`}
+                      onClick={() => setFotoAberta(foto)}
+                      style={{
+                        width: "100%",
+                        height: 130,
+                        objectFit: "cover",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 8,
+                        background: "#f8fafc",
+                        cursor: "zoom-in",
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    minHeight: 92,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    border: "1px dashed #cbd5e1",
+                    borderRadius: 10,
+                    color: "#64748b",
+                    fontSize: 11,
+                  }}
+                >
+                  <Camera size={17} />
+                  Nenhuma foto registrada.
+                </div>
+              )}
+            </section>
+          </div>
+
+          {/* ENDEREÇO DA ENTREGA */}
+          <section
+            style={{
+              padding: "12px 14px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                marginBottom: 10,
+                color: "#1f2937",
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              <MapPin size={16} color="#c9a227" />
+              Endereço da entrega
+            </div>
+            {buscandoEndereco && (
+              <div
+                style={{
+                  margin: "4px 0 6px",
+                  padding: "7px 9px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 8,
+                  background: "#f8fafc",
+                  color: "#64748b",
+                  fontSize: 11,
+                }}
+              >
+                Buscando o endereço pelas coordenadas...
+              </div>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: "9px 10px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 9,
+                  background: "#f8fafc",
+                  color: "#1f2937",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  wordBreak: "break-word",
+                }}
+              >
+                {enderecoExibido || "Endereço não informado"}
+              </div>
+              <Info
+                titulo="CEP"
+                valor={
+                  enderecoAutomatico.cep ||
+                  "Não informado"
+                }
+              />
+              <Info
+                titulo="LATITUDE"
+                valor={lat !== null ? lat : "Não informado"}
+              />
+              <Info
+                titulo="LONGITUDE"
+                valor={lng !== null ? lng : "Não informado"}
+              />
+            </div>
+            {lat !== null && lng !== null && (
+              <a
+                href={`https://www.google.com/maps?q=${lat},${lng}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  marginTop: 8,
+                  color: "#2563eb",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  textDecoration: "none",
+                }}
+              >
+                <MapPin size={14} />
+                Ver localização no mapa
+              </a>
+            )}
+          </section>
+        </article>
+      </div>
+
+      {fotoAberta && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setFotoAberta(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 20000,
+            background: "rgba(0,0,0,.88)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setFotoAberta(null)}
+            style={{
+              position: "absolute",
+              top: 18,
+              right: 18,
+              width: 42,
+              height: 42,
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,.25)",
+              background: "rgba(255,255,255,.12)",
+              color: "#fff",
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+              zIndex: 1,
+            }}
+          >
+            <X size={22} />
+          </button>
           <img
             src={fotoAberta}
             alt="Comprovante ampliado"

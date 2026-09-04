@@ -96,10 +96,10 @@ const OPERACAO_CSS = `
 .comprovante-operacao-mapa{display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:#2563eb;font-size:11px;font-weight:800;text-decoration:none}
 .comprovante-operacao-historico{position:relative;display:block;height:122px;overflow:hidden}
 .comprovante-operacao-trilha{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none}
-.comprovante-operacao-historico-item{position:absolute;display:flex;flex-direction:column;align-items:center;gap:4px;padding:0;transform:translateX(-50%);white-space:nowrap}
-.comprovante-operacao-historico-ponto{position:relative;top:auto;left:auto;width:11px;height:11px;border-radius:50%;border:2px solid #fff;flex:0 0 auto;z-index:1}
-.comprovante-operacao-historico-status{color:#1f2937;font-size:12px;font-weight:800}
-.comprovante-operacao-historico-data{margin-top:2px;color:#94a3b8;font-size:10px}
+.comprovante-operacao-historico-item{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px;padding:0;transform:translateX(-50%);white-space:nowrap;max-width:64px}
+.comprovante-operacao-historico-ponto{position:relative;top:auto;left:auto;width:9px;height:9px;border-radius:50%;border:2px solid #fff;flex:0 0 auto;z-index:1}
+.comprovante-operacao-historico-status{color:#1f2937;font-size:11px;font-weight:800;line-height:1;text-align:center;white-space:normal}
+.comprovante-operacao-historico-data{margin-top:2px;color:#94a3b8;font-size:9px;line-height:1.15;text-align:center;white-space:normal}
 .comprovante-operacao-fotos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .comprovante-operacao-foto{width:100%;height:130px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc}
 .comprovante-operacao-secao .sem-foto{min-height:92px;padding:10px;font-size:11px}
@@ -453,7 +453,7 @@ function pontoHistoricoOperacao(
     total > 1 ? index / (total - 1) : 0;
 
   return {
-    x: 18 + proporcao * 324,
+    x: 46 + proporcao * 268,
     y: ondulacao[index % ondulacao.length],
   };
 }

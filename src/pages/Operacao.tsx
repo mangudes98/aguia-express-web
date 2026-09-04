@@ -94,10 +94,10 @@ const OPERACAO_CSS = `
 .comprovante-operacao-endereco-completo{grid-column:1/-1}
 .comprovante-operacao-endereco-carregando{margin:4px 0 6px;padding:7px 9px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;color:#64748b;font-size:11px}
 .comprovante-operacao-mapa{display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:#2563eb;font-size:11px;font-weight:800;text-decoration:none}
-.comprovante-operacao-historico{position:relative;display:grid;gap:0}
-.comprovante-operacao-trilha{position:absolute;left:0;top:0;width:180px;height:100%;overflow:visible;pointer-events:none}
-.comprovante-operacao-historico-item{position:relative;display:flex;gap:8px;align-items:flex-start;padding-top:2px}
-.comprovante-operacao-historico-ponto{position:absolute;top:11px;width:11px;height:11px;border-radius:50%;border:2px solid #fff;flex:0 0 auto;z-index:1}
+.comprovante-operacao-historico{position:relative;display:block;height:122px;overflow:hidden}
+.comprovante-operacao-trilha{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.comprovante-operacao-historico-item{position:absolute;display:flex;flex-direction:column;align-items:center;gap:4px;padding:0;transform:translateX(-50%);white-space:nowrap}
+.comprovante-operacao-historico-ponto{position:relative;top:auto;left:auto;width:11px;height:11px;border-radius:50%;border:2px solid #fff;flex:0 0 auto;z-index:1}
 .comprovante-operacao-historico-status{color:#1f2937;font-size:12px;font-weight:800}
 .comprovante-operacao-historico-data{margin-top:2px;color:#94a3b8;font-size:10px}
 .comprovante-operacao-fotos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
@@ -428,6 +428,7 @@ function corHistoricoOperacao(status: string) {
       .toUpperCase()
   ) {
     case "COLETADO":
+    case "COLETA":
       return "#c9a227";
     case "ROTA":
       return "#2563eb";
@@ -443,9 +444,18 @@ function corHistoricoOperacao(status: string) {
   }
 }
 
-function pontoHistoricoOperacao(index: number) {
-  const pontos = [16, 74, 132, 82, 146, 104];
-  return pontos[index % pontos.length];
+function pontoHistoricoOperacao(
+  index: number,
+  total: number
+) {
+  const ondulacao = [16, 52, 28, 66, 40, 58];
+  const proporcao =
+    total > 1 ? index / (total - 1) : 0;
+
+  return {
+    x: 18 + proporcao * 324,
+    y: ondulacao[index % ondulacao.length],
+  };
 }
 
 export default function Operacao() {
@@ -2110,14 +2120,13 @@ function ComprovanteOperacao({
       ? new Date(milissegundos).toLocaleString("pt-BR")
       : String(data || "—");
   };
-  const alturaHistorico = Math.max(
-    64,
-    historico.length * 48
-  );
+  const alturaHistorico = historico.length ? 122 : 64;
   const pontosHistorico = historico.map(
     (_item: any, index: number) => ({
-      x: pontoHistoricoOperacao(index),
-      y: 18 + index * 48,
+      ...pontoHistoricoOperacao(
+        index,
+        historico.length
+      ),
     })
   );
 
@@ -2242,7 +2251,7 @@ function ComprovanteOperacao({
               >
                 <svg
                   className="comprovante-operacao-trilha"
-                  viewBox={`0 0 180 ${alturaHistorico}`}
+                  viewBox={`0 0 360 ${alturaHistorico}`}
                   preserveAspectRatio="none"
                   aria-hidden="true"
                 >
@@ -2285,15 +2294,14 @@ function ComprovanteOperacao({
                     className="comprovante-operacao-historico-item"
                     key={index}
                     style={{
-                      minHeight: 48,
-                      paddingLeft:
-                        pontosHistorico[index].x + 22,
+                      left: `${(pontosHistorico[index].x / 360) * 100}%`,
+                      top: pontosHistorico[index].y - 5,
                     }}
                   >
                     <span
                       className="comprovante-operacao-historico-ponto"
                       style={{
-                        left: pontosHistorico[index].x,
+                        left: "auto",
                         background: corHistoricoOperacao(
                           item?.status
                         ),
@@ -2671,6 +2679,7 @@ function ComprovanteOperacao({
       </article>
     </div>
   );
+
 }
 
 function Info({

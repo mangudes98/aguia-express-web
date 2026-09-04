@@ -119,9 +119,18 @@ function corHistoricoRastreamento(status: string) {
   }
 }
 
-function pontoHistoricoRastreamento(index: number) {
-  const pontos = [16, 74, 132, 82, 146, 104];
-  return pontos[index % pontos.length];
+function pontoHistoricoRastreamento(
+  index: number,
+  total: number
+) {
+  const ondulacao = [16, 52, 28, 66, 40, 58];
+  const proporcao =
+    total > 1 ? index / (total - 1) : 0;
+
+  return {
+    x: 18 + proporcao * 324,
+    y: ondulacao[index % ondulacao.length],
+  };
 }
 
 function statusInfo(status: string) {
@@ -1018,14 +1027,13 @@ export default function Rastreamento() {
     )
       ? entrega.historico
       : [];
-  const alturaHistorico = Math.max(
-    64,
-    historico.length * 48
-  );
+  const alturaHistorico = historico.length ? 122 : 64;
   const pontosHistorico = historico.map(
     (_item: any, index: number) => ({
-      x: pontoHistoricoRastreamento(index),
-      y: 18 + index * 48,
+      ...pontoHistoricoRastreamento(
+        index,
+        historico.length
+      ),
     })
   );
 
@@ -1554,28 +1562,30 @@ export default function Rastreamento() {
 
         .historico {
           position: relative;
-          display: grid;
-          gap: 0;
+          display: block;
+          height: 122px;
+          overflow: hidden;
         }
 
         .historico-trilha {
           position: absolute;
           left: 0;
           top: 0;
-          width: 180px;
+          width: 100%;
           height: 100%;
           overflow: visible;
           pointer-events: none;
         }
 
         .historico-item {
-          position: relative;
+          position: absolute;
           display: flex;
-          gap: 8px;
-          align-items: flex-start;
-          min-height: 48px;
-          padding-top: 2px;
-           padding-bottom: 10px;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          padding: 0;
+          transform: translateX(-50%);
+          white-space: nowrap;
         }
 
         .historico-item:last-child {
@@ -1592,8 +1602,9 @@ export default function Rastreamento() {
         }
 
         .historico-ponto {
-          position: absolute;
-          top: 11px;
+          position: relative;
+          top: auto;
+          left: auto;
           width: 11px;
           height: 11px;
           border-radius: 50%;
@@ -2208,7 +2219,7 @@ export default function Rastreamento() {
                     >
                       <svg
                         className="historico-trilha"
-                        viewBox={`0 0 180 ${alturaHistorico}`}
+                        viewBox={`0 0 360 ${alturaHistorico}`}
                         preserveAspectRatio="none"
                         aria-hidden="true"
                       >
@@ -2257,8 +2268,8 @@ export default function Rastreamento() {
                             className="historico-item"
                             key={index}
                             style={{
-                              paddingLeft:
-                                pontosHistorico[index].x + 22,
+                              left: `${(pontosHistorico[index].x / 360) * 100}%`,
+                              top: pontosHistorico[index].y - 5,
                             }}
                           >
 
@@ -2267,7 +2278,7 @@ export default function Rastreamento() {
                             <div
                               className="historico-ponto"
                               style={{
-                                left: pontosHistorico[index].x,
+                                left: "auto",
                                 background:
                                   corHistoricoRastreamento(
                                     item?.status

@@ -116,7 +116,7 @@ export default function Login() {
            type="text"
            required
            autoComplete="username"
-           placeholder="aguia"
+           placeholder="seu usuario aqui"
          />
        </label>
       <label>Senha<input value={senha} onChange={e => setSenha(e.target.value)} type="password" required placeholder="••••••••"/></label>

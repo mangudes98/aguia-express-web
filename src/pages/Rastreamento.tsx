@@ -1614,13 +1614,13 @@ export default function Rastreamento() {
 
         .historico-status {
           color: #1f2937;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 800;
         }
 
         .historico-data {
           color: #94a3b8;
-          font-size: 11px;
+          font-size: 09px;
           margin-top: 3px;
         }
 

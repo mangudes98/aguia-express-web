@@ -2214,7 +2214,11 @@ export default function Rastreamento() {
                       >
                         {pontosHistorico
                           .slice(0, -1)
-                          .map((ponto, index) => {
+                          .map(
+                            (
+                              ponto: { x: number; y: number },
+                              index: number
+                            ) => {
                             const proximo =
                               pontosHistorico[index + 1];
                             if (!proximo) return null;
@@ -2239,7 +2243,8 @@ export default function Rastreamento() {
                                 opacity=".65"
                               />
                             );
-                          })}
+                            }
+                          )}
                       </svg>
 
                       {historico.map(

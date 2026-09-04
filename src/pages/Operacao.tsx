@@ -2248,7 +2248,11 @@ function ComprovanteOperacao({
                 >
                   {pontosHistorico
                     .slice(0, -1)
-                    .map((ponto, index) => {
+                    .map(
+                      (
+                        ponto: { x: number; y: number },
+                        index: number
+                      ) => {
                       const proximo =
                         pontosHistorico[index + 1];
                       if (!proximo) return null;
@@ -2273,7 +2277,8 @@ function ComprovanteOperacao({
                           opacity=".65"
                         />
                       );
-                    })}
+                      }
+                    )}
                 </svg>
                 {historico.map((item: any, index: number) => (
                   <div
@@ -2666,7 +2671,6 @@ function ComprovanteOperacao({
       </article>
     </div>
   );
-  */
 }
 
 function Info({

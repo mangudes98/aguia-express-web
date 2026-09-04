@@ -6,6 +6,8 @@ import logo from "../assets/logo.png";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../services/firebase/firebase";
 
+const DOMINIO_LOGIN = "@gavioes.com";
+
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -17,7 +19,12 @@ export default function Login() {
   async function submit(e: FormEvent) {
     e.preventDefault(); setErro(""); setBusy(true);
     try {
-  await login(email, senha);
+  const identificador = email.trim().toLowerCase();
+  const emailLogin = identificador.includes("@")
+    ? identificador
+    : `${identificador}${DOMINIO_LOGIN}`;
+
+  await login(emailLogin, senha);
 
   const usuario = auth.currentUser;
 
@@ -101,7 +108,17 @@ export default function Login() {
      </div>
     <form className="login-card" onSubmit={submit}>
       <h2>Bem-vindo</h2><p>Acesse o painel da Águia Express.</p>
-      <label>E-mail<input value={email} onChange={e => setEmail(e.target.value)} type="email" required placeholder="seu@email.com"/></label>
+       <label>
+         Usuário ou e-mail
+         <input
+           value={email}
+           onChange={e => setEmail(e.target.value)}
+           type="text"
+           required
+           autoComplete="username"
+           placeholder="aguia"
+         />
+       </label>
       <label>Senha<input value={senha} onChange={e => setSenha(e.target.value)} type="password" required placeholder="••••••••"/></label>
       {erro && <div className="error-box">{erro}</div>}
       <button className="primary full" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>

@@ -90,15 +90,26 @@ const OPERACAO_CSS = `
 .comprovante-operacao-endereco .info-item{margin-top:6px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}
 .comprovante-operacao-endereco .info-label{margin-bottom:3px;color:#94a3b8;font-size:10px;font-weight:800}
 .comprovante-operacao-endereco .info-valor{color:#1f2937;font-size:12px;font-weight:700;line-height:1.35;word-break:break-word}
-.comprovante-operacao-historico{display:grid;gap:8px}
-.comprovante-operacao-historico-item{display:flex;gap:8px;align-items:flex-start}
-.comprovante-operacao-historico-ponto{width:9px;height:9px;margin-top:4px;border-radius:50%;background:#c9a227;box-shadow:0 0 0 2px #fef3c7;flex:0 0 auto}
+.comprovante-operacao-endereco-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.comprovante-operacao-endereco-completo{grid-column:1/-1}
+.comprovante-operacao-endereco-carregando{margin:4px 0 6px;padding:7px 9px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;color:#64748b;font-size:11px}
+.comprovante-operacao-mapa{display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:#2563eb;font-size:11px;font-weight:800;text-decoration:none}
+.comprovante-operacao-historico{position:relative;display:grid;gap:0}
+.comprovante-operacao-trilha{position:absolute;left:0;top:0;width:180px;height:100%;overflow:visible;pointer-events:none}
+.comprovante-operacao-historico-item{position:relative;display:flex;gap:8px;align-items:flex-start;padding-top:2px}
+.comprovante-operacao-historico-ponto{position:absolute;top:11px;width:11px;height:11px;border-radius:50%;border:2px solid #fff;flex:0 0 auto;z-index:1}
 .comprovante-operacao-historico-status{color:#1f2937;font-size:12px;font-weight:800}
 .comprovante-operacao-historico-data{margin-top:2px;color:#94a3b8;font-size:10px}
 .comprovante-operacao-fotos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .comprovante-operacao-foto{width:100%;height:130px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc}
 .comprovante-operacao-secao .sem-foto{min-height:92px;padding:10px;font-size:11px}
-@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info{grid-template-columns:1fr}}
+.operacao-modal-foto{position:fixed;inset:0;z-index:10001;display:flex;align-items:center;justify-content:center;padding:30px;background:rgba(15,23,42,.84)}
+.operacao-modal-foto img{max-width:min(1100px,92vw);max-height:88vh;object-fit:contain;border-radius:10px;box-shadow:0 25px 80px rgba(0,0,0,.4)}
+.operacao-modal-foto-fechar,.operacao-modal-foto-seta{position:fixed;width:46px;height:46px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;cursor:pointer}
+.operacao-modal-foto-fechar{top:20px;right:22px}
+.operacao-modal-foto-seta.esquerda{left:22px}
+.operacao-modal-foto-seta.direita{right:22px}
+@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}.operacao-premium .kanban{overflow-x:auto}.operacao-premium .kanban-col{min-width:245px}}
 `;
 
@@ -247,10 +258,194 @@ function corStatus(status: string) {
     case "ROTA":
       return "#2196f3";
     case "COLETADO":
+    case "COLETA":
       return "#c9a227";
     default:
       return "#6b7280";
   }
+}
+
+type EnderecoOperacao = {
+  rua: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+};
+
+function valorOperacao(
+  dados: any,
+  campos: string[],
+  padrao = ""
+) {
+  for (const campo of campos) {
+    const valor = dados?.[campo];
+
+    if (
+      valor !== undefined &&
+      valor !== null &&
+      String(valor).trim() !== ""
+    ) {
+      return valor;
+    }
+  }
+
+  return padrao;
+}
+
+async function buscarEnderecoOperacao(
+  latitude: number,
+  longitude: number
+): Promise<EnderecoOperacao | null> {
+  try {
+    const resposta = await fetch(
+      "https://nominatim.openstreetmap.org/reverse" +
+        `?lat=${encodeURIComponent(latitude)}` +
+        `&lon=${encodeURIComponent(longitude)}` +
+        "&format=json&addressdetails=1&accept-language=pt-BR",
+      { headers: { Accept: "application/json" } }
+    );
+
+    if (!resposta.ok) return null;
+
+    const address = (await resposta.json())?.address;
+    if (!address) return null;
+
+    return {
+      rua:
+        address.road ||
+        address.pedestrian ||
+        address.residential ||
+        address.street ||
+        "",
+      numero: address.house_number || "",
+      bairro:
+        address.suburb ||
+        address.neighbourhood ||
+        address.city_district ||
+        address.quarter ||
+        "",
+      cidade:
+        address.city ||
+        address.town ||
+        address.municipality ||
+        address.village ||
+        "",
+      estado: address.state || "",
+      cep: address.postcode || "",
+    };
+  } catch (error) {
+    console.error(
+      "Erro ao buscar endereço da operação:",
+      error
+    );
+    return null;
+  }
+}
+
+async function completarEnderecoOperacao(
+  dados: any
+): Promise<EnderecoOperacao> {
+  const endereco: EnderecoOperacao = {
+    rua: String(
+      valorOperacao(dados, ["rua", "logradouro", "street"])
+    ),
+    numero: String(
+      valorOperacao(dados, ["numero", "number", "house_number"])
+    ),
+    bairro: String(
+      valorOperacao(dados, [
+        "bairro",
+        "neighborhood",
+        "suburb",
+      ])
+    ),
+    cidade: String(
+      valorOperacao(dados, [
+        "cidade",
+        "municipio",
+        "city",
+      ])
+    ),
+    estado: String(
+      valorOperacao(dados, ["estado", "uf", "state"])
+    ),
+    cep: String(
+      valorOperacao(dados, ["cep", "CEP", "postcode"])
+    ),
+  };
+
+  const precisaCompletar =
+    !endereco.rua ||
+    !endereco.numero ||
+    !endereco.bairro ||
+    !endereco.cidade ||
+    !endereco.estado ||
+    !endereco.cep;
+
+  if (!precisaCompletar) return endereco;
+
+  const latitude = Number(
+    dados?.latitudeEntrega ??
+      dados?.latitude ??
+      dados?.lat
+  );
+  const longitude = Number(
+    dados?.longitudeEntrega ??
+      dados?.longitude ??
+      dados?.lng
+  );
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return endereco;
+  }
+
+  const encontrado = await buscarEnderecoOperacao(
+    latitude,
+    longitude
+  );
+
+  if (!encontrado) return endereco;
+
+  return {
+    rua: endereco.rua || encontrado.rua,
+    numero: endereco.numero || encontrado.numero,
+    bairro: endereco.bairro || encontrado.bairro,
+    cidade: endereco.cidade || encontrado.cidade,
+    estado: endereco.estado || encontrado.estado,
+    cep: endereco.cep || encontrado.cep,
+  };
+}
+
+function corHistoricoOperacao(status: string) {
+  switch (
+    String(status || "")
+      .trim()
+      .toUpperCase()
+  ) {
+    case "COLETADO":
+      return "#c9a227";
+    case "ROTA":
+      return "#2563eb";
+    case "AUSENTE":
+      return "#ef4444";
+    case "ENTREGUE":
+    case "DEVOLVIDO":
+    case "DEVOLUÇÃO":
+    case "DEVOLUCAO":
+      return "#16a34a";
+    default:
+      return "#64748b";
+  }
+}
+
+function pontoHistoricoOperacao(index: number) {
+  const pontos = [16, 74, 132, 82, 146, 104];
+  return pontos[index % pontos.length];
 }
 
 export default function Operacao() {
@@ -1766,9 +1961,54 @@ function ComprovanteOperacao({
   usuariosMap: Record<string, string>;
   onFechar: () => void;
 }) {
-  const dados = pacote.raw && typeof pacote.raw === "object"
-    ? { ...pacote.raw, ...pacote }
-    : pacote;
+  const dados = (() => {
+    if (pacote.raw && typeof pacote.raw === "object") {
+      return { ...pacote.raw, ...pacote };
+    }
+
+    if (typeof pacote.raw === "string") {
+      try {
+        return {
+          ...JSON.parse(pacote.raw),
+          ...pacote,
+        };
+      } catch {
+        return pacote;
+      }
+    }
+
+    return pacote;
+  })();
+  const enderecoInicial: EnderecoOperacao = {
+    rua: String(
+      valorOperacao(dados, ["rua", "logradouro", "street"])
+    ),
+    numero: String(
+      valorOperacao(dados, ["numero", "number", "house_number"])
+    ),
+    bairro: String(
+      valorOperacao(dados, [
+        "bairro",
+        "neighborhood",
+        "suburb",
+      ])
+    ),
+    cidade: String(
+      valorOperacao(dados, ["cidade", "municipio", "city"])
+    ),
+    estado: String(
+      valorOperacao(dados, ["estado", "uf", "state"])
+    ),
+    cep: String(
+      valorOperacao(dados, ["cep", "CEP", "postcode"])
+    ),
+  };
+  const [fotoSelecionada, setFotoSelecionada] =
+    useState<string | null>(null);
+  const [enderecoAutomatico, setEnderecoAutomatico] =
+    useState<EnderecoOperacao>(enderecoInicial);
+  const [buscandoEndereco, setBuscandoEndereco] =
+    useState(false);
   const fotos = Array.from(
     new Set(
       [
@@ -1791,6 +2031,23 @@ function ComprovanteOperacao({
     usuariosMap[usuario] ||
     usuario ||
     "-";
+
+  useEffect(() => {
+    let ativo = true;
+
+    setBuscandoEndereco(true);
+    completarEnderecoOperacao(dados)
+      .then((endereco) => {
+        if (ativo) setEnderecoAutomatico(endereco);
+      })
+      .finally(() => {
+        if (ativo) setBuscandoEndereco(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [pacote]);
 
   const historico = Array.isArray(dados.historico)
     ? dados.historico
@@ -1815,19 +2072,31 @@ function ComprovanteOperacao({
       dados.obs ||
       "—"
   );
-  const endereco = String(
-    dados.enderecoCompleto ||
-      [
-        dados.rua,
-        dados.numero,
-        dados.bairro,
-        dados.cidade,
-        dados.estado,
-        dados.cep,
-      ]
-        .filter(Boolean)
-        .join(", ") ||
-      "Endereço não informado"
+  const rua = enderecoAutomatico.rua;
+  const numero = enderecoAutomatico.numero;
+  const bairro = enderecoAutomatico.bairro;
+  const cidade = enderecoAutomatico.cidade;
+  const estado = enderecoAutomatico.estado;
+  const cep = enderecoAutomatico.cep;
+  const enderecoCompleto = [
+    rua,
+    numero,
+    bairro,
+    cidade,
+    estado,
+    cep,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const latitude = Number(
+    dados?.latitudeEntrega ??
+      dados?.latitude ??
+      dados?.lat
+  );
+  const longitude = Number(
+    dados?.longitudeEntrega ??
+      dados?.longitude ??
+      dados?.lng
   );
   const dataEntrega =
     dados.dataHoraBaixa ||
@@ -1841,6 +2110,16 @@ function ComprovanteOperacao({
       ? new Date(milissegundos).toLocaleString("pt-BR")
       : String(data || "—");
   };
+  const alturaHistorico = Math.max(
+    64,
+    historico.length * 48
+  );
+  const pontosHistorico = historico.map(
+    (_item: any, index: number) => ({
+      x: pontoHistoricoOperacao(index),
+      y: 18 + index * 48,
+    })
+  );
 
   // Mantém o comprovante compacto e na mesma ordem do rastreamento.
   return (
@@ -1955,15 +2234,79 @@ function ComprovanteOperacao({
               Histórico da encomenda
             </div>
             {historico.length > 0 ? (
-              <div className="comprovante-operacao-historico">
+              <div
+                className="comprovante-operacao-historico"
+                style={{
+                  minHeight: alturaHistorico,
+                }}
+              >
+                <svg
+                  className="comprovante-operacao-trilha"
+                  viewBox={`0 0 180 ${alturaHistorico}`}
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  {pontosHistorico
+                    .slice(0, -1)
+                    .map((ponto, index) => {
+                      const proximo =
+                        pontosHistorico[index + 1];
+                      if (!proximo) return null;
+                      const meioX =
+                        (ponto.x + proximo.x) / 2;
+                      const caminho =
+                        `M ${ponto.x} ${ponto.y} ` +
+                        `C ${meioX} ${ponto.y}, ` +
+                        `${meioX} ${proximo.y}, ` +
+                        `${proximo.x} ${proximo.y}`;
+
+                      return (
+                        <path
+                          key={index}
+                          d={caminho}
+                          fill="none"
+                          stroke={corHistoricoOperacao(
+                            historico[index]?.status
+                          )}
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          opacity=".65"
+                        />
+                      );
+                    })}
+                </svg>
                 {historico.map((item: any, index: number) => (
                   <div
                     className="comprovante-operacao-historico-item"
                     key={index}
+                    style={{
+                      minHeight: 48,
+                      paddingLeft:
+                        pontosHistorico[index].x + 22,
+                    }}
                   >
-                    <span className="comprovante-operacao-historico-ponto" />
+                    <span
+                      className="comprovante-operacao-historico-ponto"
+                      style={{
+                        left: pontosHistorico[index].x,
+                        background: corHistoricoOperacao(
+                          item?.status
+                        ),
+                        boxShadow:
+                          `0 0 0 3px ${corHistoricoOperacao(
+                            item?.status
+                          )}22`,
+                      }}
+                    />
                     <div>
-                      <div className="comprovante-operacao-historico-status">
+                      <div
+                        className="comprovante-operacao-historico-status"
+                        style={{
+                          color: corHistoricoOperacao(
+                            item?.status
+                          ),
+                        }}
+                      >
                         {item?.status || "Atualização"}
                       </div>
                       <div className="comprovante-operacao-historico-data">
@@ -2026,6 +2369,8 @@ function ComprovanteOperacao({
                     className="comprovante-operacao-foto"
                     src={foto}
                     alt={`Comprovante ${index + 1}`}
+                    onClick={() => setFotoSelecionada(foto)}
+                    style={{ cursor: "zoom-in" }}
                   />
                 ))}
               </div>
@@ -2043,12 +2388,97 @@ function ComprovanteOperacao({
             <MapPin size={16} />
             Endereço da entrega
           </div>
-          <div className="info-item">
-            <div className="info-label">ENDEREÇO COMPLETO</div>
-            <div className="info-valor">{endereco}</div>
+          {buscandoEndereco && (
+            <div className="comprovante-operacao-endereco-carregando">
+              Buscando rua, número, bairro, cidade e CEP pelas coordenadas...
+            </div>
+          )}
+          <div className="comprovante-operacao-endereco-grid">
+            <div className="info-item comprovante-operacao-endereco-completo">
+              <div className="info-label">ENDEREÇO COMPLETO</div>
+              <div className="info-valor">
+                {enderecoCompleto || "Endereço não informado"}
+              </div>
+            </div>
+            <Info titulo="RUA" valor={rua || "Não informado"} />
+            <Info titulo="NÚMERO" valor={numero || "Não informado"} />
+            <Info titulo="BAIRRO" valor={bairro || "Não informado"} />
+            <Info titulo="CIDADE" valor={cidade || "Não informado"} />
+            <Info titulo="ESTADO" valor={estado || "Não informado"} />
+            <Info titulo="CEP" valor={cep || "Não informado"} />
           </div>
+          {Number.isFinite(latitude) &&
+            Number.isFinite(longitude) && (
+              <a
+                className="comprovante-operacao-mapa"
+                href={`https://www.google.com/maps?q=${latitude},${longitude}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MapPin size={14} />
+                Ver localização no mapa
+              </a>
+            )}
         </section>
       </article>
+
+      {fotoSelecionada && (
+        <div
+          className="operacao-modal-foto"
+          onClick={() => setFotoSelecionada(null)}
+        >
+          <button
+            type="button"
+            className="operacao-modal-foto-fechar"
+            onClick={(event) => {
+              event.stopPropagation();
+              setFotoSelecionada(null);
+            }}
+            aria-label="Fechar foto ampliada"
+          >
+            <X size={22} />
+          </button>
+
+          {fotos.indexOf(fotoSelecionada) > 0 && (
+            <button
+              type="button"
+              className="operacao-modal-foto-seta esquerda"
+              onClick={(event) => {
+                event.stopPropagation();
+                setFotoSelecionada(
+                  fotos[fotos.indexOf(fotoSelecionada) - 1]
+                );
+              }}
+              aria-label="Foto anterior"
+            >
+              <ChevronLeft size={28} />
+            </button>
+          )}
+
+          <img
+            src={fotoSelecionada}
+            alt="Comprovante ampliado"
+            onClick={(event) => event.stopPropagation()}
+          />
+
+          {fotos.indexOf(fotoSelecionada) <
+            fotos.length - 1 && (
+            <button
+              type="button"
+              className="operacao-modal-foto-seta direita"
+              onClick={(event) => {
+                event.stopPropagation();
+                setFotoSelecionada(
+                  fotos[fotos.indexOf(fotoSelecionada) + 1]
+                );
+              }}
+              aria-label="Próxima foto"
+            >
+              <ChevronRight size={28} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -2236,7 +2666,7 @@ function ComprovanteOperacao({
       </article>
     </div>
   );
-  
+  */
 }
 
 function Info({

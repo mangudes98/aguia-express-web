@@ -96,6 +96,34 @@ function normalizarCodigo(codigo: string) {
   return codigo.trim().toUpperCase();
 }
 
+function corHistoricoRastreamento(status: string) {
+  switch (
+    String(status || "")
+      .trim()
+      .toUpperCase()
+  ) {
+    case "COLETADO":
+    case "COLETA":
+      return "#c9a227";
+    case "ROTA":
+      return "#2563eb";
+    case "AUSENTE":
+      return "#ef4444";
+    case "ENTREGUE":
+    case "DEVOLVIDO":
+    case "DEVOLUÇÃO":
+    case "DEVOLUCAO":
+      return "#16a34a";
+    default:
+      return "#64748b";
+  }
+}
+
+function pontoHistoricoRastreamento(index: number) {
+  const pontos = [16, 74, 132, 82, 146, 104];
+  return pontos[index % pontos.length];
+}
+
 function statusInfo(status: string) {
   const s = status.toUpperCase();
 
@@ -990,6 +1018,16 @@ export default function Rastreamento() {
     )
       ? entrega.historico
       : [];
+  const alturaHistorico = Math.max(
+    64,
+    historico.length * 48
+  );
+  const pontosHistorico = historico.map(
+    (_item: any, index: number) => ({
+      x: pontoHistoricoRastreamento(index),
+      y: 18 + index * 48,
+    })
+  );
 
   return (
     <div className="rastreamento-site">
@@ -1478,7 +1516,7 @@ export default function Rastreamento() {
           object-fit: cover;
           border-radius: 11px;
           border: 1px solid #e2e8f0;
-          cursor: pointer;
+          cursor: zoom-in;
           transition: .2s;
           background: #f1f5f9;
         }
@@ -1515,14 +1553,28 @@ export default function Rastreamento() {
         }
 
         .historico {
-          display: flex;
-          flex-direction: column;
+          position: relative;
+          display: grid;
+          gap: 0;
+        }
+
+        .historico-trilha {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 180px;
+          height: 100%;
+          overflow: visible;
+          pointer-events: none;
         }
 
         .historico-item {
           position: relative;
           display: flex;
-          gap: 13px;
+          gap: 8px;
+          align-items: flex-start;
+          min-height: 48px;
+          padding-top: 2px;
            padding-bottom: 10px;
         }
 
@@ -1531,12 +1583,7 @@ export default function Rastreamento() {
         }
 
         .historico-linha {
-          position: absolute;
-          left: 7px;
-          top: 17px;
-          bottom: 0;
-          width: 1px;
-          background: #e2e8f0;
+          display: none;
         }
 
         .historico-item:last-child
@@ -1545,15 +1592,12 @@ export default function Rastreamento() {
         }
 
         .historico-ponto {
-          width: 15px;
-          height: 15px;
-          margin-top: 2px;
+          position: absolute;
+          top: 11px;
+          width: 11px;
+          height: 11px;
           border-radius: 50%;
-          background: ${GOLD};
-          border: 3px solid #fff;
-          box-shadow:
-            0 0 0 1px #d8dee7;
-          flex-shrink: 0;
+          border: 2px solid #fff;
           z-index: 1;
         }
 
@@ -2156,7 +2200,47 @@ export default function Rastreamento() {
                   {historico.length >
                   0 ? (
 
-                    <div className="historico">
+                    <div
+                      className="historico"
+                      style={{
+                        minHeight: alturaHistorico,
+                      }}
+                    >
+                      <svg
+                        className="historico-trilha"
+                        viewBox={`0 0 180 ${alturaHistorico}`}
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                      >
+                        {pontosHistorico
+                          .slice(0, -1)
+                          .map((ponto, index) => {
+                            const proximo =
+                              pontosHistorico[index + 1];
+                            if (!proximo) return null;
+                            const meioX =
+                              (ponto.x + proximo.x) / 2;
+                            const caminho =
+                              `M ${ponto.x} ${ponto.y} ` +
+                              `C ${meioX} ${ponto.y}, ` +
+                              `${meioX} ${proximo.y}, ` +
+                              `${proximo.x} ${proximo.y}`;
+
+                            return (
+                              <path
+                                key={index}
+                                d={caminho}
+                                fill="none"
+                                stroke={corHistoricoRastreamento(
+                                  historico[index]?.status
+                                )}
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                opacity=".65"
+                              />
+                            );
+                          })}
+                      </svg>
 
                       {historico.map(
                         (
@@ -2167,15 +2251,40 @@ export default function Rastreamento() {
                           <div
                             className="historico-item"
                             key={index}
+                            style={{
+                              paddingLeft:
+                                pontosHistorico[index].x + 22,
+                            }}
                           >
 
                             <div className="historico-linha" />
 
-                            <div className="historico-ponto" />
+                            <div
+                              className="historico-ponto"
+                              style={{
+                                left: pontosHistorico[index].x,
+                                background:
+                                  corHistoricoRastreamento(
+                                    item?.status
+                                  ),
+                                boxShadow:
+                                  `0 0 0 3px ${corHistoricoRastreamento(
+                                    item?.status
+                                  )}22`,
+                              }}
+                            />
 
                             <div>
 
-                              <div className="historico-status">
+                              <div
+                                className="historico-status"
+                                style={{
+                                  color:
+                                    corHistoricoRastreamento(
+                                      item?.status
+                                    ),
+                                }}
+                              >
                                 {item?.status ||
                                   "Atualização"}
                               </div>

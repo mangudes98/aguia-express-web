@@ -2236,7 +2236,7 @@ function ComprovanteOperacao({
       </article>
     </div>
   );
-  */
+  
 }
 
 function Info({

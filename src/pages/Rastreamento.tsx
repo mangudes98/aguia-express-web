@@ -1010,7 +1010,7 @@ export default function Rastreamento() {
               #f5f7fa 100%
             );
           color: #17202a;
-          padding: 42px 28px 70px;
+           padding: 30px 22px 48px;
           font-family:
             Inter,
             -apple-system,
@@ -1026,7 +1026,7 @@ export default function Rastreamento() {
 
         .rastreamento-header {
           text-align: center;
-          margin-bottom: 30px;
+           margin-bottom: 22px;
         }
 
         .logo-rastreamento {
@@ -1068,10 +1068,10 @@ export default function Rastreamento() {
           background: #ffffff;
           border: 1px solid #e5e7eb;
           border-radius: 18px;
-          padding: 22px;
+           padding: 16px;
           box-shadow:
             0 10px 35px rgba(15, 23, 42, .06);
-          margin-bottom: 26px;
+           margin-bottom: 18px;
         }
 
         .busca-titulo {
@@ -1191,12 +1191,12 @@ export default function Rastreamento() {
 
         .status-card {
           border-radius: 18px;
-          padding: 20px 22px;
+           padding: 15px 18px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 20px;
-          margin-bottom: 18px;
+           gap: 14px;
+           margin-bottom: 12px;
         }
 
         .status-conteudo {
@@ -1249,7 +1249,7 @@ export default function Rastreamento() {
         }
 
         .comprovante-cabecalho {
-          padding: 22px 26px;
+           padding: 15px 18px;
           border-bottom: 1px solid #edf0f3;
           display: flex;
           align-items: center;
@@ -1304,7 +1304,7 @@ export default function Rastreamento() {
         }
 
         .codigo-area {
-          padding: 22px 26px;
+           padding: 15px 18px;
           background: #fafbfc;
           border-bottom: 1px solid #edf0f3;
         }
@@ -1369,7 +1369,7 @@ export default function Rastreamento() {
         }
 
         .secao {
-          padding: 24px 26px;
+           padding: 15px 18px;
           border-bottom: 1px solid #edf0f3;
         }
 
@@ -1384,7 +1384,7 @@ export default function Rastreamento() {
           color: #1f2937;
           font-size: 14px;
           font-weight: 900;
-          margin-bottom: 17px;
+           margin-bottom: 10px;
         }
 
         .titulo-secao svg {
@@ -1395,12 +1395,12 @@ export default function Rastreamento() {
           display: grid;
           grid-template-columns:
             repeat(2, minmax(0, 1fr));
-          gap: 12px;
+           gap: 7px;
         }
 
         .info-item {
           min-width: 0;
-          padding: 14px 15px;
+           padding: 10px 11px;
           background: #f8fafc;
           border: 1px solid #edf0f3;
           border-radius: 11px;
@@ -1428,12 +1428,12 @@ export default function Rastreamento() {
         }
 
         .localizacao {
-          margin-top: 13px;
+           margin-top: 8px;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 15px;
-          padding: 13px 15px;
+           gap: 10px;
+           padding: 10px 11px;
           border: 1px solid #e5e7eb;
           border-radius: 11px;
           background: #fff;
@@ -1469,7 +1469,7 @@ export default function Rastreamento() {
           display: grid;
           grid-template-columns:
             repeat(2, 1fr);
-          gap: 10px;
+           gap: 7px;
         }
 
         .foto {
@@ -1523,7 +1523,7 @@ export default function Rastreamento() {
           position: relative;
           display: flex;
           gap: 13px;
-          padding-bottom: 18px;
+           padding-bottom: 10px;
         }
 
         .historico-item:last-child {
@@ -1573,8 +1573,8 @@ export default function Rastreamento() {
           display: flex;
           align-items: center;
           gap: 8px;
-          margin-top: 12px;
-          padding: 10px 13px;
+           margin-top: 8px;
+           padding: 8px 11px;
           border-radius: 10px;
           background: #f8fafc;
           border: 1px solid #e5e7eb;
@@ -1599,7 +1599,7 @@ export default function Rastreamento() {
         }
 
         .comprovante-footer {
-          padding: 17px 26px;
+           padding: 12px 18px;
           display: flex;
           align-items: center;
           gap: 8px;

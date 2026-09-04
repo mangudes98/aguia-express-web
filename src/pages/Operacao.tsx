@@ -14,11 +14,14 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   AlertTriangle,
   Building2,
+  Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  History,
   List,
+  MapPin,
   Package,
   QrCode,
   Search,
@@ -75,7 +78,27 @@ const OPERACAO_CSS = `
 .operacao-premium .kanban-item:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(25,42,65,.1)}
 .operacao-premium button{transition:transform .18s ease,box-shadow .18s ease}
 .operacao-premium button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 16px rgba(25,42,65,.1)}
-.operacao-premium .qr-present{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:22px;box-shadow:0 10px 28px rgba(25,42,65,.1)}
+.operacao-premium .qr-present{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 10px 28px rgba(25,42,65,.1)}
+.comprovante-operacao-linha{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid #edf0f3}
+.comprovante-operacao-linha:last-child{border-bottom:0}
+.comprovante-operacao-secao{min-width:0;padding:12px 14px;border-right:1px solid #edf0f3}
+.comprovante-operacao-secao:last-child{border-right:0}
+.comprovante-operacao-titulo{display:flex;align-items:center;gap:7px;margin-bottom:10px;color:#1f2937;font-size:13px;font-weight:900}
+.comprovante-operacao-titulo svg{color:#c9a227}
+.comprovante-operacao-info{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.comprovante-operacao-endereco{padding:12px 14px}
+.comprovante-operacao-endereco .info-item{margin-top:6px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}
+.comprovante-operacao-endereco .info-label{margin-bottom:3px;color:#94a3b8;font-size:10px;font-weight:800}
+.comprovante-operacao-endereco .info-valor{color:#1f2937;font-size:12px;font-weight:700;line-height:1.35;word-break:break-word}
+.comprovante-operacao-historico{display:grid;gap:8px}
+.comprovante-operacao-historico-item{display:flex;gap:8px;align-items:flex-start}
+.comprovante-operacao-historico-ponto{width:9px;height:9px;margin-top:4px;border-radius:50%;background:#c9a227;box-shadow:0 0 0 2px #fef3c7;flex:0 0 auto}
+.comprovante-operacao-historico-status{color:#1f2937;font-size:12px;font-weight:800}
+.comprovante-operacao-historico-data{margin-top:2px;color:#94a3b8;font-size:10px}
+.comprovante-operacao-fotos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.comprovante-operacao-foto{width:100%;height:130px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc}
+.comprovante-operacao-secao .sem-foto{min-height:92px;padding:10px;font-size:11px}
+@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info{grid-template-columns:1fr}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}.operacao-premium .kanban{overflow-x:auto}.operacao-premium .kanban-col{min-width:245px}}
 `;
 
@@ -1163,13 +1186,13 @@ export default function Operacao() {
                 display: "grid",
                 gridTemplateColumns:
                   "minmax(260px,360px) minmax(0,1fr)",
-                gap: 16,
+                gap: 10,
               }}
             >
               <div
                 className="card"
                 style={{
-                  padding: 12,
+                  padding: 8,
                   maxHeight: "75vh",
                   overflowY: "auto",
                 }}
@@ -1183,8 +1206,8 @@ export default function Operacao() {
                     style={{
                       width: "100%",
                       textAlign: "left",
-                      padding: 12,
-                      marginBottom: 8,
+                      padding: 8,
+                      marginBottom: 4,
                       borderRadius: 10,
                       border:
                         indiceQr === index
@@ -1220,7 +1243,7 @@ export default function Operacao() {
                     </div>
 
                     <div
-                      style={{ marginTop: 7 }}
+                      style={{ marginTop: 4 }}
                     >
                       <StatusBadge
                         status={p.status}
@@ -1245,7 +1268,7 @@ export default function Operacao() {
               {pacoteQr ? (
                 <div
                   className="card qr-present"
-                  style={{ padding: 24 }}
+                  style={{ padding: 16 }}
                 >
                   <div
                     style={{
@@ -1286,8 +1309,8 @@ export default function Operacao() {
                     style={{
                       display: "flex",
                       justifyContent: "center",
-                      margin: "25px 0",
-                      padding: 20,
+                      margin: "18px 0",
+                      padding: 12,
                       borderRadius: 14,
                       background:
                         (pacoteQr.status ===
@@ -1365,8 +1388,8 @@ export default function Operacao() {
                       "AUSENTE") && (
                     <div
                       style={{
-                        marginTop: 20,
-                        padding: 18,
+                        marginTop: 12,
+                        padding: 12,
                         borderRadius: 12,
                         background:
                           pacoteQr.confirmado
@@ -1421,12 +1444,12 @@ export default function Operacao() {
                         <div
                           style={{
                             display: "flex",
-                            flexDirection: "column",
                             gap: 8,
-                            minWidth: 190,
+                            flexWrap: "wrap",
+                            justifyContent: "flex-end",
                           }}
                         >
-                        <button
+                          <button
                           onClick={() =>
                             marcarPacote(pacoteQr)
                           }
@@ -1463,9 +1486,9 @@ export default function Operacao() {
                             : pacoteQr.confirmado
                               ? "DESMARCAR"
                               : "MARCAR"}
-                        </button>
+                          </button>
 
-                        <button
+                          <button
                           type="button"
                           onClick={() =>
                             setPacoteComprovante(pacoteQr)
@@ -1481,7 +1504,7 @@ export default function Operacao() {
                           }}
                         >
                           ABRIR COMPROVANTE
-                        </button>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1769,6 +1792,269 @@ function ComprovanteOperacao({
     usuario ||
     "-";
 
+  const historico = Array.isArray(dados.historico)
+    ? dados.historico
+    : [];
+  const nomeRecebedor = String(
+    dados.nomeRecebedor ||
+      dados.nome_recebedor ||
+      dados.recebedor ||
+      dados.destinatario ||
+      dados.nome ||
+      "—"
+  );
+  const documentoRecebedor = String(
+    dados.documentoRecebedor ||
+      dados.documento ||
+      dados.cpfRecebedor ||
+      "—"
+  );
+  const observacao = String(
+    dados.observacao ||
+      dados.observação ||
+      dados.obs ||
+      "—"
+  );
+  const endereco = String(
+    dados.enderecoCompleto ||
+      [
+        dados.rua,
+        dados.numero,
+        dados.bairro,
+        dados.cidade,
+        dados.estado,
+        dados.cep,
+      ]
+        .filter(Boolean)
+        .join(", ") ||
+      "Endereço não informado"
+  );
+  const dataEntrega =
+    dados.dataHoraBaixa ||
+    dados.dataHoraEntrega ||
+    dados.dataEntrega ||
+    dados.dataHora ||
+    dados.data;
+  const formatarDataOperacao = (data: any) => {
+    const milissegundos = timestampMs(data);
+    return Number.isFinite(milissegundos)
+      ? new Date(milissegundos).toLocaleString("pt-BR")
+      : String(data || "—");
+  };
+
+  // Mantém o comprovante compacto e na mesma ordem do rastreamento.
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onFechar}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        background: "rgba(15,23,42,.60)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 12,
+      }}
+    >
+      <article
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(96vw, 940px)",
+          maxHeight: "94vh",
+          overflowY: "auto",
+          background: "#fff",
+          borderRadius: 14,
+          boxShadow: "0 25px 70px rgba(15,23,42,.35)",
+        }}
+      >
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 14px",
+            borderBottom: "1px solid #edf0f3",
+          }}
+        >
+          <div>
+            <small
+              style={{
+                color: "#9a7209",
+                fontWeight: 800,
+                letterSpacing: ".08em",
+              }}
+            >
+              COMPROVANTE DE ENTREGA
+            </small>
+            <h2
+              style={{
+                margin: "3px 0 0",
+                color: "#17202d",
+                fontSize: 18,
+              }}
+            >
+              {codigoPacote(pacote)}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar comprovante"
+            style={{
+              width: 32,
+              height: 32,
+              display: "grid",
+              placeItems: "center",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              background: "#f8fafc",
+              cursor: "pointer",
+            }}
+          >
+            <X size={17} />
+          </button>
+        </header>
+
+        <div className="comprovante-operacao-linha">
+          <section className="comprovante-operacao-secao">
+            <div className="comprovante-operacao-titulo">
+              <Package size={16} />
+              Identificação
+            </div>
+            <div className="comprovante-operacao-info">
+              <Info
+                titulo="STATUS"
+                valor={String(pacote.status || "—")}
+              />
+              <Info
+                titulo="TIPO"
+                valor={nomeTipo(pacote.tipo)}
+              />
+              <Info
+                titulo="EMPRESA"
+                valor={String(pacote.empresa || "—")}
+              />
+              <Info
+                titulo="ENTREGADOR"
+                valor={entregador}
+              />
+              <Info
+                titulo="DATA DA ENTREGA"
+                valor={formatarDataOperacao(dataEntrega)}
+              />
+            </div>
+          </section>
+
+          <section className="comprovante-operacao-secao">
+            <div className="comprovante-operacao-titulo">
+              <History size={16} />
+              Histórico da encomenda
+            </div>
+            {historico.length > 0 ? (
+              <div className="comprovante-operacao-historico">
+                {historico.map((item: any, index: number) => (
+                  <div
+                    className="comprovante-operacao-historico-item"
+                    key={index}
+                  >
+                    <span className="comprovante-operacao-historico-ponto" />
+                    <div>
+                      <div className="comprovante-operacao-historico-status">
+                        {item?.status || "Atualização"}
+                      </div>
+                      <div className="comprovante-operacao-historico-data">
+                        {formatarDataOperacao(item?.dataHora)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="sem-foto">
+                <History size={17} />
+                Nenhum histórico registrado.
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="comprovante-operacao-linha">
+          <section className="comprovante-operacao-secao">
+            <div className="comprovante-operacao-titulo">
+              <User size={16} />
+              Recebedor
+            </div>
+            <div className="comprovante-operacao-info">
+              <Info titulo="NOME" valor={nomeRecebedor} />
+              <Info
+                titulo="DOCUMENTO"
+                valor={documentoRecebedor}
+              />
+            </div>
+            {observacao !== "—" && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "8px 10px",
+                  border: "1px solid #fef3c7",
+                  borderRadius: 8,
+                  background: "#fffbeb",
+                  color: "#713f12",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                }}
+              >
+                {observacao}
+              </div>
+            )}
+          </section>
+
+          <section className="comprovante-operacao-secao">
+            <div className="comprovante-operacao-titulo">
+              <Camera size={16} />
+              Comprovante fotográfico
+            </div>
+            {fotos.length > 0 ? (
+              <div className="comprovante-operacao-fotos">
+                {fotos.map((foto, index) => (
+                  <img
+                    key={`${foto}-${index}`}
+                    className="comprovante-operacao-foto"
+                    src={foto}
+                    alt={`Comprovante ${index + 1}`}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="sem-foto">
+                <Camera size={17} />
+                Nenhuma foto registrada.
+              </div>
+            )}
+          </section>
+        </div>
+
+        <section className="comprovante-operacao-endereco">
+          <div className="comprovante-operacao-titulo">
+            <MapPin size={16} />
+            Endereço da entrega
+          </div>
+          <div className="info-item">
+            <div className="info-label">ENDEREÇO COMPLETO</div>
+            <div className="info-valor">{endereco}</div>
+          </div>
+        </section>
+      </article>
+    </div>
+  );
+
+  /*
+   * Layout anterior mantido apenas como referência durante a transição.
+   */
   return (
     <div
       role="dialog"
@@ -1950,6 +2236,7 @@ function ComprovanteOperacao({
       </article>
     </div>
   );
+  */
 }
 
 function Info({
@@ -1962,7 +2249,7 @@ function Info({
   return (
     <div
       style={{
-        padding: 12,
+        padding: "9px 10px",
         border: "1px solid #e5e7eb",
         borderRadius: 9,
       }}
@@ -1981,7 +2268,7 @@ function Info({
       <strong
         style={{
           display: "block",
-          marginTop: 4,
+          marginTop: 3,
           wordBreak: "break-word",
         }}
       >

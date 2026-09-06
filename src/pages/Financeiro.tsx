@@ -2992,25 +2992,78 @@ export default function Financeiro() {
               <div
                 className="stat-card"
                 style={{
-                  flex: 1.5,
-                  minWidth: 230,
+                  flex: 1,
+                  minWidth: 170,
                 }}
               >
-                <div className="stat-icon">
-                  <Truck />
+                <div className="stat-icon green">
+                  <CheckCircle2 />
                 </div>
 
                 <span>
-                  Total por transportadora
+                  Pago
                 </span>
+
+                <strong>
+                  {br(
+                    totaisRepasse.pago
+                  )}
+                </strong>
+              </div>
+
+              <div
+                className="stat-card"
+                style={{
+                  flex: 1,
+                  minWidth: 170,
+                }}
+              >
+                <div className="stat-icon orange">
+                  <Clock3 />
+                </div>
+
+                <span>
+                  Pendente
+                </span>
+
+                <strong>
+                  {br(
+                    totaisRepasse.pendente
+                  )}
+                </strong>
+              </div>
+
+              <div
+                className="stat-card"
+                style={{
+                  flex: "0 0 100%",
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <div className="stat-icon">
+                    <Truck />
+                  </div>
+
+                  <span>
+                    Total por transportadora
+                  </span>
+                </div>
 
                 <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
                     gap: 7,
-                    marginTop: 8,
-                    maxHeight: 110,
+                    marginTop: 12,
+                    maxHeight: 150,
                     overflowY: "auto",
                   }}
                 >
@@ -3069,50 +3122,6 @@ export default function Financeiro() {
                     </small>
                   )}
                 </div>
-              </div>
-
-              <div
-                className="stat-card"
-                style={{
-                  flex: 1,
-                  minWidth: 170,
-                }}
-              >
-                <div className="stat-icon green">
-                  <CheckCircle2 />
-                </div>
-
-                <span>
-                  Pago
-                </span>
-
-                <strong>
-                  {br(
-                    totaisRepasse.pago
-                  )}
-                </strong>
-              </div>
-
-              <div
-                className="stat-card"
-                style={{
-                  flex: 1,
-                  minWidth: 170,
-                }}
-              >
-                <div className="stat-icon orange">
-                  <Clock3 />
-                </div>
-
-                <span>
-                  Pendente
-                </span>
-
-                <strong>
-                  {br(
-                    totaisRepasse.pendente
-                  )}
-                </strong>
               </div>
             </div>
 

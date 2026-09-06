@@ -1883,6 +1883,49 @@ export default function Financeiro() {
       );
     }, [repassesFiltrados]);
 
+  const totaisPorTransportadora =
+    useMemo(() => {
+      const transportadoras =
+        new Map<
+          string,
+          {
+            id: string;
+            nome: string;
+            total: number;
+          }
+        >();
+
+      repassesFiltrados.forEach((repasse) => {
+        repasse.porTransportadora?.forEach(
+          (transportadora: AnyDoc) => {
+            const id = String(
+              transportadora.id ||
+                transportadora.nome ||
+                "sem_transportadora"
+            );
+
+            const atual =
+              transportadoras.get(id) || {
+                id,
+                nome:
+                  transportadora.nome ||
+                  "Sem Transportadora",
+                total: 0,
+              };
+
+            atual.total += n(
+              transportadora.totalFinal
+            );
+            transportadoras.set(id, atual);
+          }
+        );
+      });
+
+      return Array.from(
+        transportadoras.values()
+      ).sort((a, b) => b.total - a.total);
+    }, [repassesFiltrados]);
+
   function calcularEmpresa(
     empresa: AnyDoc,
     inicio: Date,
@@ -2944,6 +2987,88 @@ export default function Financeiro() {
                     totaisRepasse.geral
                   )}
                 </strong>
+              </div>
+
+              <div
+                className="stat-card"
+                style={{
+                  flex: 1.5,
+                  minWidth: 230,
+                }}
+              >
+                <div className="stat-icon">
+                  <Truck />
+                </div>
+
+                <span>
+                  Total por transportadora
+                </span>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 7,
+                    marginTop: 8,
+                    maxHeight: 110,
+                    overflowY: "auto",
+                  }}
+                >
+                  {totaisPorTransportadora.length ? (
+                    totaisPorTransportadora.map(
+                      (transportadora) => (
+                        <div
+                          key={transportadora.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent:
+                              "space-between",
+                            gap: 10,
+                            paddingTop: 7,
+                            borderTop:
+                              "1px solid #e5e7eb",
+                          }}
+                        >
+                          <small
+                            style={{
+                              color: "#64748b",
+                              fontWeight: 700,
+                              overflow: "hidden",
+                              textOverflow:
+                                "ellipsis",
+                              whiteSpace:
+                                "nowrap",
+                            }}
+                            title={transportadora.nome}
+                          >
+                            {transportadora.nome}
+                          </small>
+
+                          <strong
+                            style={{
+                              color: "#17202d",
+                              fontSize: 14,
+                              whiteSpace:
+                                "nowrap",
+                            }}
+                          >
+                            {br(transportadora.total)}
+                          </strong>
+                        </div>
+                      )
+                    )
+                  ) : (
+                    <small
+                      style={{
+                        color: "#64748b",
+                        marginTop: 8,
+                      }}
+                    >
+                      Nenhuma transportadora
+                    </small>
+                  )}
+                </div>
               </div>
 
               <div

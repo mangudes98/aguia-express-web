@@ -1,5 +1,5 @@
 // ============================================================
-// PÁGINA: WhatsApp + Cadastro Pendente
+// PÁGINA: WhatsApp — Chat / Colaboradores / Parceiros
 // ARQUIVO: src/pages/whatsapp.tsx
 // ============================================================
 
@@ -22,11 +22,15 @@ import {
   MapPin,
   MessageCircle,
   Pencil,
-  Save,
   Search,
   Send,
   UserPlus,
+  Building2,
+  Phone,
   X,
+  Save,
+  Users,
+  Handshake,
 } from "lucide-react";
 
 import { db } from "../services/firebase/firebase";
@@ -35,11 +39,13 @@ import { db } from "../services/firebase/firebase";
 // TIPOS
 // ============================================================
 
+type ValorData = Timestamp | Date | string | unknown;
+
 type Mensagem = {
-  papel: "cliente" | "assistente";
+  papel?: "cliente" | "assistente" | string;
   texto?: string;
   tipo?: string;
-  em?: Timestamp | Date | string;
+  em?: ValorData;
 
   url?: string;
   mediaUrl?: string;
@@ -51,14 +57,33 @@ type Mensagem = {
   foto?: string;
 };
 
+type ParceiroConversa = {
+  nomeEmpresa?: string;
+  nomeResponsavel?: string;
+  cidadeRegiao?: string;
+  volumeDiario?: string;
+  telefoneContato?: string;
+  enviadoParaEquipe?: boolean;
+};
+
 type Conversa = {
   id: string;
-  numero: string;
+  numero?: string;
   nome?: string;
   mensagens?: Mensagem[];
+
   atendimentoHumano?: boolean;
+  atendimentoHumanoEm?: ValorData;
+
   ultimoCodigo?: string;
-  atualizadoEm?: Timestamp | Date | string;
+
+  parceiro?: ParceiroConversa;
+  modo?: string;
+
+  criadoEm?: ValorData;
+  atualizadoEm?: ValorData;
+
+  [key: string]: unknown;
 };
 
 type CadastroEntregador = {
@@ -66,81 +91,118 @@ type CadastroEntregador = {
 
   status?: string;
   origem?: string;
+
   numeroWhatsApp?: string;
 
   nomeCompleto?: string;
   cep?: string;
   rua?: string;
   numero?: string;
+
+  regiaoNome?: string;
+
   telefone?: string;
   telefoneContato?: string;
+
   cpf?: string;
   pix?: string;
   banco?: string;
   favorecido?: string;
 
-  regiaoEscolhida?: string;
-
-  criadoEm?: Timestamp | Date | string;
-  atualizadoEm?: Timestamp | Date | string;
+  criadoEm?: ValorData;
+  atualizadoEm?: ValorData;
 
   [key: string]: unknown;
 };
 
-// ============================================================
-// REGIÕES
-// ============================================================
+type SolicitacaoParceiro = {
+  id: string;
 
-const REGIOES = [
-  "Barueri",
-  "Jandira",
-  "Itapevi",
-  "Osasco",
-  "Carapicuíba",
-  "Santana de Parnaíba",
-  "Alphaville",
-];
+  nomeEmpresa?: string;
+  nomeResponsavel?: string;
+  cidadeRegiao?: string;
+  volumeDiario?: string;
+  telefoneContato?: string;
+
+  numeroWhatsApp?: string;
+  status?: string;
+  origem?: string;
+
+  criadoEm?: ValorData;
+  atualizadoEm?: ValorData;
+
+  [key: string]: unknown;
+};
+
+type Aba = "chat" | "colaboradores" | "parceiros";
 
 // ============================================================
 // FUNÇÕES
 // ============================================================
 
-function formatarData(valor?: unknown) {
-  if (!valor) return "";
+function converterData(valor?: ValorData): Date | null {
+  if (!valor) return null;
 
   try {
-    let data: Date;
-
     if (valor instanceof Timestamp) {
-      data = valor.toDate();
-    } else if (valor instanceof Date) {
-      data = valor;
-    } else if (
+      return valor.toDate();
+    }
+
+    if (valor instanceof Date) {
+      return valor;
+    }
+
+    if (
       typeof valor === "object" &&
       valor !== null &&
       "toDate" in valor &&
-      typeof (valor as any).toDate === "function"
+      typeof (valor as { toDate?: unknown }).toDate === "function"
     ) {
-      data = (valor as any).toDate();
-    } else {
-      data = new Date(String(valor));
+      return (
+        valor as {
+          toDate: () => Date;
+        }
+      ).toDate();
     }
 
-    if (Number.isNaN(data.getTime())) return "";
+    const data = new Date(String(valor));
 
-    return data.toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    if (Number.isNaN(data.getTime())) {
+      return null;
+    }
+
+    return data;
   } catch {
-    return "";
+    return null;
   }
 }
 
-function formatarNumero(numero: string) {
+function formatarData(valor?: ValorData) {
+  const data = converterData(valor);
+
+  if (!data) return "";
+
+  return data.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatarHora(valor?: ValorData) {
+  const data = converterData(valor);
+
+  if (!data) return "";
+
+  return data.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatarNumero(numero?: string) {
   const n = String(numero || "").replace(/\D/g, "");
 
   if (n.length === 13) {
@@ -154,13 +216,23 @@ function formatarNumero(numero: string) {
     return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
   }
 
-  return numero;
+  return numero || "";
 }
 
-function obterFotosMensagem(mensagem: Mensagem) {
-  const fotos: string[] = [];
+function valorTexto(valor: unknown) {
+  if (valor === undefined || valor === null) {
+    return "";
+  }
 
-  const campos = [
+  if (typeof valor === "object") {
+    return "";
+  }
+
+  return String(valor);
+}
+
+function obterUrlImagem(mensagem: Mensagem) {
+  const possiveis = [
     mensagem.url,
     mensagem.mediaUrl,
     mensagem.imagemUrl,
@@ -171,16 +243,44 @@ function obterFotosMensagem(mensagem: Mensagem) {
     mensagem.foto,
   ];
 
-  campos.forEach((valor) => {
-    if (
-      typeof valor === "string" &&
-      /^https?:\/\//i.test(valor)
-    ) {
-      fotos.push(valor);
-    }
-  });
+  const url = possiveis.find(
+    (item) =>
+      typeof item === "string" &&
+      /^https?:\/\//i.test(item)
+  );
 
-  return [...new Set(fotos)];
+  return url || "";
+}
+
+function statusClasse(status?: string) {
+  const s = String(status || "").toUpperCase();
+
+  if (
+    s === "APROVADO" ||
+    s === "ATIVO" ||
+    s === "CONCLUIDO" ||
+    s === "CONCLUÍDO"
+  ) {
+    return "success";
+  }
+
+  if (
+    s === "PENDENTE" ||
+    s === "EM_ANDAMENTO" ||
+    s === "EM ANDAMENTO"
+  ) {
+    return "warning";
+  }
+
+  if (
+    s === "RECUSADO" ||
+    s === "CANCELADO" ||
+    s === "CANCELADA"
+  ) {
+    return "danger";
+  }
+
+  return "neutral";
 }
 
 // ============================================================
@@ -188,46 +288,62 @@ function obterFotosMensagem(mensagem: Mensagem) {
 // ============================================================
 
 export default function WhatsApp() {
-  const [aba, setAba] =
-    useState<"whatsapp" | "cadastro">("whatsapp");
+  // ==========================================================
+  // ABA
+  // ==========================================================
 
-  // ----------------------------------------------------------
-  // WHATSAPP
-  // ----------------------------------------------------------
+  const [aba, setAba] = useState<Aba>("chat");
+
+  // ==========================================================
+  // CHAT
+  // ==========================================================
 
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [selecionada, setSelecionada] =
     useState<Conversa | null>(null);
 
-  const [busca, setBusca] = useState("");
+  const [buscaChat, setBuscaChat] = useState("");
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
-
-  // ----------------------------------------------------------
-  // CADASTROS
-  // ----------------------------------------------------------
-
-  const [cadastros, setCadastros] = useState<
-    CadastroEntregador[]
-  >([]);
-
-  const [cadastroSelecionado, setCadastroSelecionado] =
-    useState<CadastroEntregador | null>(null);
-
-  const [buscaCadastro, setBuscaCadastro] = useState("");
-
-  const [editando, setEditando] =
-    useState<CadastroEntregador | null>(null);
-
-  const [salvando, setSalvando] = useState(false);
-  const [mensagemSalvar, setMensagemSalvar] =
-    useState("");
-
-  const [fotoAberta, setFotoAberta] =
-    useState<string | null>(null);
+  const [erroChat, setErroChat] = useState("");
 
   // ==========================================================
-  // FIREBASE — WHATSAPP
+  // COLABORADORES
+  // ==========================================================
+
+  const [colaboradores, setColaboradores] =
+    useState<CadastroEntregador[]>([]);
+
+  const [colaboradorSelecionado, setColaboradorSelecionado] =
+    useState<CadastroEntregador | null>(null);
+
+  const [buscaColaborador, setBuscaColaborador] =
+    useState("");
+
+  const [editandoColaborador, setEditandoColaborador] =
+    useState<CadastroEntregador | null>(null);
+
+  const [salvandoColaborador, setSalvandoColaborador] =
+    useState(false);
+
+  const [mensagemColaborador, setMensagemColaborador] =
+    useState("");
+
+  // ==========================================================
+  // PARCEIROS
+  // ==========================================================
+
+  const [parceiros, setParceiros] =
+    useState<SolicitacaoParceiro[]>([]);
+
+  const [parceiroSelecionado, setParceiroSelecionado] =
+    useState<SolicitacaoParceiro | null>(null);
+
+  const [buscaParceiro, setBuscaParceiro] =
+    useState("");
+
+  // ==========================================================
+  // FIREBASE — CHAT
   // ==========================================================
 
   useEffect(() => {
@@ -247,13 +363,18 @@ export default function WhatsApp() {
         const lista: Conversa[] =
           snapshot.docs.map((item) => ({
             id: item.id,
-            ...(item.data() as Omit<Conversa, "id">),
+            ...(item.data() as Omit<
+              Conversa,
+              "id"
+            >),
           }));
 
         setConversas(lista);
 
         setSelecionada((atual) => {
-          if (!atual) return lista[0] || null;
+          if (!atual) {
+            return lista[0] || null;
+          }
 
           return (
             lista.find(
@@ -265,13 +386,20 @@ export default function WhatsApp() {
         });
       },
       (error) => {
-        console.error("Erro WhatsApp:", error);
+        console.error(
+          "Erro ao carregar WhatsApp:",
+          error
+        );
+
+        setErroChat(
+          "Não foi possível carregar as conversas."
+        );
       }
     );
   }, []);
 
   // ==========================================================
-  // FIREBASE — CADASTROS
+  // FIREBASE — COLABORADORES
   // ==========================================================
 
   useEffect(() => {
@@ -297,56 +425,107 @@ export default function WhatsApp() {
             >),
           }));
 
-        const pendentes = lista.filter((item) => {
-          const status = String(
-            item.status || ""
-          ).toUpperCase();
+        setColaboradores(lista);
+
+        setColaboradorSelecionado((atual) => {
+          if (!atual) {
+            return lista[0] || null;
+          }
 
           return (
-            status === "PENDENTE" ||
-            status === "EM_ANDAMENTO"
-          );
-        });
-
-        setCadastros(pendentes);
-
-        setCadastroSelecionado((atual) => {
-          if (!atual) return pendentes[0] || null;
-
-          return (
-            pendentes.find(
+            lista.find(
               (item) => item.id === atual.id
             ) ||
-            pendentes[0] ||
+            lista[0] ||
             null
           );
         });
       },
       (error) => {
-        console.error("Erro cadastros:", error);
+        console.error(
+          "Erro colaboradores:",
+          error
+        );
       }
     );
   }, []);
 
   // ==========================================================
-  // FILTROS
+  // FIREBASE — PARCEIROS
+  // ==========================================================
+
+  useEffect(() => {
+    const referencia = collection(
+      db,
+      "solicitacoes_parceiros"
+    );
+
+    const consulta = query(
+      referencia,
+      orderBy("criadoEm", "desc")
+    );
+
+    return onSnapshot(
+      consulta,
+      (snapshot) => {
+        const lista: SolicitacaoParceiro[] =
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<
+              SolicitacaoParceiro,
+              "id"
+            >),
+          }));
+
+        setParceiros(lista);
+
+        setParceiroSelecionado((atual) => {
+          if (!atual) {
+            return lista[0] || null;
+          }
+
+          return (
+            lista.find(
+              (item) => item.id === atual.id
+            ) ||
+            lista[0] ||
+            null
+          );
+        });
+      },
+      (error) => {
+        console.error(
+          "Erro parceiros:",
+          error
+        );
+      }
+    );
+  }, []);
+
+  // ==========================================================
+  // FILTRO — CHAT
   // ==========================================================
 
   const conversasFiltradas = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
+    const termo =
+      buscaChat.trim().toLowerCase();
 
-    if (!termo) return conversas;
+    if (!termo) {
+      return conversas;
+    }
 
     return conversas.filter((conversa) => {
-      const nome = String(
-        conversa.nome || ""
-      ).toLowerCase();
+      const nome =
+        String(
+          conversa.nome || ""
+        ).toLowerCase();
 
-      const numero = String(
-        conversa.numero || ""
-      ).toLowerCase();
+      const numero =
+        String(
+          conversa.numero || ""
+        ).toLowerCase();
 
-      const ultima =
+      const ultimaMensagem =
         conversa.mensagens?.[
           conversa.mensagens.length - 1
         ]?.texto?.toLowerCase() || "";
@@ -354,127 +533,86 @@ export default function WhatsApp() {
       return (
         nome.includes(termo) ||
         numero.includes(termo) ||
-        ultima.includes(termo)
+        ultimaMensagem.includes(termo)
       );
     });
-  }, [conversas, busca]);
+  }, [conversas, buscaChat]);
 
-  const cadastrosFiltrados = useMemo(() => {
-    const termo =
-      buscaCadastro.trim().toLowerCase();
+  // ==========================================================
+  // FILTRO — COLABORADORES
+  // ==========================================================
 
-    if (!termo) return cadastros;
+  const colaboradoresFiltrados =
+    useMemo(() => {
+      const termo =
+        buscaColaborador
+          .trim()
+          .toLowerCase();
 
-    return cadastros.filter((cadastro) => {
-      return (
-        String(cadastro.nomeCompleto || "")
-          .toLowerCase()
-          .includes(termo) ||
-        String(cadastro.numeroWhatsApp || "")
-          .toLowerCase()
-          .includes(termo) ||
-        String(cadastro.cpf || "")
-          .toLowerCase()
-          .includes(termo) ||
-        String(cadastro.regiaoEscolhida || "")
-          .toLowerCase()
-          .includes(termo)
+      if (!termo) {
+        return colaboradores;
+      }
+
+      return colaboradores.filter(
+        (item) => {
+          return [
+            item.nomeCompleto,
+            item.numeroWhatsApp,
+            item.telefone,
+            item.cpf,
+            item.regiaoNome,
+            item.pix,
+          ].some((valor) =>
+            String(valor || "")
+              .toLowerCase()
+              .includes(termo)
+          );
+        }
       );
-    });
-  }, [cadastros, buscaCadastro]);
+    }, [
+      colaboradores,
+      buscaColaborador,
+    ]);
 
   // ==========================================================
-  // EDIÇÃO
+  // FILTRO — PARCEIROS
   // ==========================================================
 
-  function iniciarEdicao(
-    cadastro: CadastroEntregador
-  ) {
-    setEditando({ ...cadastro });
-    setMensagemSalvar("");
-  }
+  const parceirosFiltrados =
+    useMemo(() => {
+      const termo =
+        buscaParceiro
+          .trim()
+          .toLowerCase();
 
-  function alterarCampo(
-    campo: string,
-    valor: string
-  ) {
-    setEditando((atual) => {
-      if (!atual) return null;
+      if (!termo) {
+        return parceiros;
+      }
 
-      return {
-        ...atual,
-        [campo]: valor,
-      };
-    });
-  }
-
-  // ==========================================================
-  // SALVAR
-  // ==========================================================
-
-  async function salvarCadastro() {
-    if (!editando) return;
-
-    setSalvando(true);
-    setMensagemSalvar("");
-
-    try {
-      const referencia = doc(
-        db,
-        "candidatos_entregadores",
-        editando.id
+      return parceiros.filter(
+        (item) => {
+          return [
+            item.nomeEmpresa,
+            item.nomeResponsavel,
+            item.cidadeRegiao,
+            item.volumeDiario,
+            item.telefoneContato,
+            item.numeroWhatsApp,
+            item.status,
+          ].some((valor) =>
+            String(valor || "")
+              .toLowerCase()
+              .includes(termo)
+          );
+        }
       );
-
-      await updateDoc(referencia, {
-        nomeCompleto:
-          editando.nomeCompleto || "",
-
-        cep: editando.cep || "",
-        rua: editando.rua || "",
-        numero: editando.numero || "",
-
-        telefone:
-          editando.telefone || "",
-
-        telefoneContato:
-          editando.telefoneContato || "",
-
-        cpf: editando.cpf || "",
-        pix: editando.pix || "",
-        banco: editando.banco || "",
-
-        favorecido:
-          editando.favorecido || "",
-
-        regiaoEscolhida:
-          editando.regiaoEscolhida || "",
-
-        atualizadoEm: Timestamp.now(),
-      });
-
-      setCadastroSelecionado({
-        ...editando,
-        atualizadoEm: Timestamp.now(),
-      });
-
-      setEditando(null);
-
-      setMensagemSalvar(
-        "Alterações salvas com sucesso."
-      );
-    } catch (error) {
-      console.error(error);
-
-      setMensagemSalvar(
-        "Erro ao salvar alterações."
-      );
-    } finally {
-      setSalvando(false);
-    }
-  }
+    }, [
+      parceiros,
+      buscaParceiro,
+    ]);
 
   // ==========================================================
-  // ENVIAR
+  // ENVIAR MENSAGEM
   // ==========================================================
 
   async function enviarMensagem() {
@@ -487,22 +625,20 @@ export default function WhatsApp() {
     }
 
     setEnviando(true);
+    setErroChat("");
 
     try {
       const resposta = await fetch(
         "/api/whatsapp/send",
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           body: JSON.stringify({
             numero:
               selecionada.numero,
-
             mensagem:
               texto.trim(),
           }),
@@ -523,28 +659,162 @@ export default function WhatsApp() {
 
       setTexto("");
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Erro ao enviar mensagem:",
+        error
+      );
+
+      setErroChat(
+        error instanceof Error
+          ? error.message
+          : "Erro ao enviar mensagem."
+      );
     } finally {
       setEnviando(false);
     }
   }
 
   // ==========================================================
-  // LAYOUT
+  // EDITAR COLABORADOR
+  // ==========================================================
+
+  function iniciarEdicaoColaborador(
+    colaborador: CadastroEntregador
+  ) {
+    setEditandoColaborador({
+      ...colaborador,
+    });
+
+    setMensagemColaborador("");
+  }
+
+  function alterarCampoColaborador(
+    campo: string,
+    valor: string
+  ) {
+    setEditandoColaborador(
+      (atual) => {
+        if (!atual) {
+          return null;
+        }
+
+        return {
+          ...atual,
+          [campo]: valor,
+        };
+      }
+    );
+  }
+
+  async function salvarColaborador() {
+    if (!editandoColaborador) {
+      return;
+    }
+
+    setSalvandoColaborador(true);
+    setMensagemColaborador("");
+
+    try {
+      const referencia = doc(
+        db,
+        "candidatos_entregadores",
+        editandoColaborador.id
+      );
+
+      await updateDoc(
+        referencia,
+        {
+          nomeCompleto:
+            editandoColaborador.nomeCompleto ||
+            "",
+
+          cep:
+            editandoColaborador.cep ||
+            "",
+
+          rua:
+            editandoColaborador.rua ||
+            "",
+
+          numero:
+            editandoColaborador.numero ||
+            "",
+
+          regiaoNome:
+            editandoColaborador.regiaoNome ||
+            "",
+
+          telefone:
+            editandoColaborador.telefone ||
+            "",
+
+          telefoneContato:
+            editandoColaborador.telefoneContato ||
+            "",
+
+          cpf:
+            editandoColaborador.cpf ||
+            "",
+
+          pix:
+            editandoColaborador.pix ||
+            "",
+
+          banco:
+            editandoColaborador.banco ||
+            "",
+
+          favorecido:
+            editandoColaborador.favorecido ||
+            "",
+
+          atualizadoEm:
+            Timestamp.now(),
+        }
+      );
+
+      setColaboradorSelecionado({
+        ...editandoColaborador,
+        atualizadoEm:
+          Timestamp.now(),
+      });
+
+      setEditandoColaborador(null);
+
+      setMensagemColaborador(
+        "Alterações salvas com sucesso."
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao salvar colaborador:",
+        error
+      );
+
+      setMensagemColaborador(
+        "Erro ao salvar alterações."
+      );
+    } finally {
+      setSalvandoColaborador(false);
+    }
+  }
+
+  // ==========================================================
+  // RENDER
   // ==========================================================
 
   return (
-    <div className="aguia-whatsapp">
+    <div className="aguia-whatsapp-page">
 
       <style>{`
 
-        /* ======================================================
-           BASE
-        ====================================================== */
+        * {
+          box-sizing: border-box;
+        }
 
-        .aguia-whatsapp {
+        .aguia-whatsapp-page {
           width: 100%;
           height: calc(100vh - 132px);
+          min-height: 0;
 
           display: flex;
           flex-direction: column;
@@ -554,28 +824,29 @@ export default function WhatsApp() {
           overflow: hidden;
         }
 
-        /* ======================================================
+        /* =====================================================
            TABS
-        ====================================================== */
+        ===================================================== */
 
         .aw-tabs {
-          height: 46px;
-
-          flex-shrink: 0;
+          height: 48px;
+          min-height: 48px;
 
           display: flex;
           align-items: center;
 
+          gap: 4px;
+
           padding: 4px;
 
-          background: #fff;
+          background: #ffffff;
 
           border: 1px solid #eaecf0;
-          border-radius: 11px;
+          border-radius: 12px;
         }
 
         .aw-tab {
-          height: 36px;
+          height: 38px;
 
           padding: 0 18px;
 
@@ -583,142 +854,136 @@ export default function WhatsApp() {
           align-items: center;
           justify-content: center;
 
-          gap: 7px;
+          gap: 8px;
 
           border: 0;
-          border-radius: 8px;
+          border-radius: 9px;
 
           background: transparent;
 
           color: #667085;
 
-          font-size: 10px;
-          font-weight: 800;
+          font-family: inherit;
+          font-size: 12px;
+          font-weight: 700;
 
           cursor: pointer;
+
+          transition: .15s ease;
+        }
+
+        .aw-tab:hover {
+          background: #f9fafb;
+          color: #101828;
         }
 
         .aw-tab.active {
           background: #111827;
-
-          color: #fff;
+          color: #ffffff;
         }
 
-        .aw-count {
-          min-width: 18px;
-          height: 18px;
+        .aw-tab-count {
+          min-width: 20px;
+          height: 20px;
 
-          display: inline-flex;
+          padding: 0 6px;
+
+          display: flex;
           align-items: center;
           justify-content: center;
 
-          padding: 0 5px;
-
           border-radius: 20px;
 
-          background: #c9a227;
+          background: #f2f4f7;
+          color: #667085;
 
-          color: #fff;
-
-          font-size: 8px;
+          font-size: 9px;
+          font-weight: 800;
         }
 
-        /* ======================================================
-           PAINEL
-        ====================================================== */
+        .aw-tab.active .aw-tab-count {
+          background: #ffffff;
+          color: #111827;
+        }
 
-        .aw-panel {
+        /* =====================================================
+           CHAT
+        ===================================================== */
+
+        .aw-chat {
           flex: 1;
-
           min-height: 0;
 
           display: flex;
 
           overflow: hidden;
 
-          background: #fff;
+          background: #ffffff;
 
           border: 1px solid #eaecf0;
-          border-radius: 15px;
+          border-radius: 12px;
         }
 
-        /* ======================================================
-           SIDEBAR
-        ====================================================== */
-
-        .aw-sidebar {
-          width: 330px;
-          min-width: 330px;
+        .aw-chat-list {
+          width: 320px;
+          min-width: 320px;
 
           display: flex;
           flex-direction: column;
 
-          min-height: 0;
-
-          background: #fff;
-
           border-right: 1px solid #eaecf0;
         }
 
-        .aw-sidebar-header {
-          padding: 17px;
-
-          flex-shrink: 0;
+        .aw-chat-list-header {
+          padding: 16px;
 
           border-bottom: 1px solid #eaecf0;
         }
 
-        .aw-heading {
+        .aw-chat-title {
           display: flex;
           align-items: center;
 
           gap: 10px;
+
+          margin-bottom: 13px;
         }
 
-        .aw-heading-icon {
-          width: 38px;
-          height: 38px;
+        .aw-chat-title-icon {
+          width: 36px;
+          height: 36px;
 
           display: flex;
           align-items: center;
           justify-content: center;
 
-          flex-shrink: 0;
-
           border-radius: 10px;
 
           background: #111827;
-
-          color: #fff;
+          color: #ffffff;
         }
 
-        .aw-heading-text {
-          min-width: 0;
-        }
-
-        .aw-heading-text strong {
+        .aw-chat-title strong {
           display: block;
 
           color: #101828;
 
-          font-size: 13px;
+          font-size: 15px;
           font-weight: 800;
         }
 
-        .aw-heading-text span {
+        .aw-chat-title span {
           display: block;
 
-          margin-top: 3px;
+          margin-top: 2px;
 
           color: #98a2b3;
 
-          font-size: 9px;
+          font-size: 10px;
         }
 
         .aw-search {
           position: relative;
-
-          margin-top: 14px;
         }
 
         .aw-search svg {
@@ -737,8 +1002,7 @@ export default function WhatsApp() {
           padding: 0 10px 0 34px;
 
           border: 1px solid #eaecf0;
-
-          border-radius: 8px;
+          border-radius: 9px;
 
           outline: none;
 
@@ -747,36 +1011,25 @@ export default function WhatsApp() {
           color: #101828;
 
           font-family: inherit;
-
-          font-size: 10px;
+          font-size: 11px;
         }
 
         .aw-search input:focus {
           border-color: #c9a227;
-
-          background: #fff;
+          background: #ffffff;
         }
 
-        /* ======================================================
-           LISTA
-        ====================================================== */
-
-        .aw-list {
+        .aw-chat-list-items {
           flex: 1;
-
           min-height: 0;
 
           overflow-y: auto;
-
-          scrollbar-width: thin;
         }
 
-        .aw-list-item {
+        .aw-conversation {
           width: 100%;
 
-          min-height: 68px;
-
-          padding: 11px 13px;
+          padding: 12px;
 
           display: flex;
           align-items: center;
@@ -786,29 +1039,28 @@ export default function WhatsApp() {
           border: 0;
           border-bottom: 1px solid #f2f4f7;
 
-          background: #fff;
+          background: #ffffff;
 
           text-align: left;
 
           cursor: pointer;
         }
 
-        .aw-list-item:hover {
+        .aw-conversation:hover {
           background: #f9fafb;
         }
 
-        .aw-list-item.active {
+        .aw-conversation.active {
           background: #f2f4f7;
 
           box-shadow:
-            inset 3px 0 #c9a227;
+            inset 3px 0 0 #c9a227;
         }
 
         .aw-avatar {
-          width: 39px;
-          height: 39px;
-
-          min-width: 39px;
+          width: 38px;
+          height: 38px;
+          min-width: 38px;
 
           display: flex;
           align-items: center;
@@ -816,44 +1068,36 @@ export default function WhatsApp() {
 
           border-radius: 50%;
 
-          background: #111827;
-
-          color: #fff;
-
-          font-size: 12px;
-          font-weight: 800;
+          background: #f2f4f7;
+          color: #475467;
         }
 
-        .aw-list-info {
+        .aw-conversation-info {
           min-width: 0;
-
           flex: 1;
         }
 
-        .aw-list-top {
+        .aw-conversation-top {
           display: flex;
-
           justify-content: space-between;
-
           gap: 8px;
         }
 
-        .aw-list-name {
+        .aw-conversation-name {
           min-width: 0;
 
           overflow: hidden;
 
           color: #101828;
 
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 800;
 
           white-space: nowrap;
-
           text-overflow: ellipsis;
         }
 
-        .aw-list-time {
+        .aw-conversation-time {
           flex-shrink: 0;
 
           color: #98a2b3;
@@ -861,51 +1105,50 @@ export default function WhatsApp() {
           font-size: 8px;
         }
 
-        .aw-list-sub {
+        .aw-conversation-number {
+          margin-top: 2px;
+
+          color: #98a2b3;
+
+          font-size: 9px;
+        }
+
+        .aw-conversation-last {
           margin-top: 4px;
 
           overflow: hidden;
 
-          color: #98a2b3;
+          color: #667085;
 
-          font-size: 8px;
+          font-size: 9px;
 
           white-space: nowrap;
-
           text-overflow: ellipsis;
         }
 
-        .aw-status {
+        .aw-human {
           display: inline-flex;
-
-          align-items: center;
-
-          gap: 4px;
 
           margin-top: 5px;
 
-          padding: 3px 6px;
+          padding: 2px 6px;
 
           border-radius: 20px;
 
-          background: #fff7ed;
-
-          color: #c2410c;
+          background: #ecfdf3;
+          color: #15803d;
 
           font-size: 7px;
-
           font-weight: 800;
         }
 
-        /* ======================================================
-           CONTEÚDO DIREITO
-        ====================================================== */
+        /* =====================================================
+           CHAT AREA
+        ===================================================== */
 
-        .aw-content {
+        .aw-chat-area {
           flex: 1;
-
           min-width: 0;
-          min-height: 0;
 
           display: flex;
           flex-direction: column;
@@ -913,25 +1156,21 @@ export default function WhatsApp() {
           overflow: hidden;
         }
 
-        .aw-content-header {
-          min-height: 68px;
+        .aw-chat-header {
+          min-height: 66px;
 
-          flex-shrink: 0;
-
-          padding: 12px 18px;
+          padding: 12px 16px;
 
           display: flex;
           align-items: center;
           justify-content: space-between;
 
-          gap: 15px;
-
-          background: #fff;
+          gap: 12px;
 
           border-bottom: 1px solid #eaecf0;
         }
 
-        .aw-user {
+        .aw-chat-user {
           min-width: 0;
 
           display: flex;
@@ -940,62 +1179,78 @@ export default function WhatsApp() {
           gap: 10px;
         }
 
-        .aw-user-info {
+        .aw-chat-user-avatar {
+          width: 38px;
+          height: 38px;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          flex-shrink: 0;
+
+          border-radius: 50%;
+
+          background: #111827;
+          color: #ffffff;
+        }
+
+        .aw-chat-user-info {
           min-width: 0;
         }
 
-        .aw-user-info strong {
+        .aw-chat-user-info strong {
           display: block;
+
+          overflow: hidden;
 
           color: #101828;
 
           font-size: 13px;
-
           font-weight: 800;
+
+          white-space: nowrap;
+          text-overflow: ellipsis;
         }
 
-        .aw-user-info span {
+        .aw-chat-user-info span {
           display: block;
 
-          margin-top: 3px;
+          margin-top: 2px;
 
           color: #98a2b3;
 
-          font-size: 8px;
+          font-size: 9px;
         }
 
-        .aw-edit {
-          height: 32px;
-
-          padding: 0 11px;
-
-          display: inline-flex;
+        .aw-online {
+          display: flex;
           align-items: center;
 
-          gap: 6px;
+          gap: 5px;
 
-          border: 0;
+          padding: 5px 8px;
 
-          border-radius: 8px;
+          border-radius: 20px;
 
-          background: #111827;
-
-          color: #fff;
+          background: #ecfdf3;
+          color: #15803d;
 
           font-size: 8px;
-
           font-weight: 800;
-
-          cursor: pointer;
         }
 
-        /* ======================================================
-           CHAT
-        ====================================================== */
+        .aw-online-dot {
+          width: 5px;
+          height: 5px;
+
+          border-radius: 50%;
+
+          background: #22c55e;
+        }
 
         .aw-messages {
           flex: 1;
-
           min-height: 0;
 
           overflow-y: auto;
@@ -1006,14 +1261,11 @@ export default function WhatsApp() {
         }
 
         .aw-messages-inner {
-          width: 100%;
-
           max-width: 900px;
 
           margin: 0 auto;
 
           display: flex;
-
           flex-direction: column;
 
           gap: 8px;
@@ -1021,52 +1273,63 @@ export default function WhatsApp() {
 
         .aw-message-row {
           display: flex;
+          width: 100%;
         }
 
-        .aw-message-row.cliente {
+        .aw-message-row.client {
           justify-content: flex-start;
         }
 
-        .aw-message-row.assistente {
+        .aw-message-row.assistant {
           justify-content: flex-end;
         }
 
         .aw-message {
-          max-width: 68%;
+          max-width: 72%;
 
           padding: 9px 12px;
 
-          border-radius: 12px;
+          border-radius: 13px;
 
           box-shadow:
-            0 1px 2px
-            rgba(16,24,40,.04);
-
-          overflow-wrap: anywhere;
+            0 1px 2px rgba(16,24,40,.05);
         }
 
-        .aw-message.cliente {
-          background: #fff;
-
+        .aw-message.client {
+          background: #ffffff;
           color: #344054;
 
           border-top-left-radius: 4px;
         }
 
-        .aw-message.assistente {
+        .aw-message.assistant {
           background: #111827;
-
-          color: #fff;
+          color: #ffffff;
 
           border-top-right-radius: 4px;
         }
 
         .aw-message-text {
           white-space: pre-wrap;
+          word-break: break-word;
 
           font-size: 11px;
-
           line-height: 1.55;
+        }
+
+        .aw-message-image {
+          display: block;
+
+          max-width: 280px;
+          max-height: 350px;
+
+          margin-bottom: 6px;
+
+          border-radius: 9px;
+
+          object-fit: contain;
+
+          cursor: pointer;
         }
 
         .aw-message-time {
@@ -1079,72 +1342,52 @@ export default function WhatsApp() {
           text-align: right;
         }
 
-        .aw-message-image {
-          display: block;
-
-          max-width: 280px;
-          max-height: 330px;
-
-          margin-top: 6px;
-
-          border-radius: 8px;
-
-          object-fit: contain;
-
-          cursor: pointer;
+        .aw-message.assistant
+        .aw-message-time {
+          color: #cbd5e1;
         }
 
-        /* ======================================================
-           COMPOSITOR
-        ====================================================== */
-
         .aw-compose {
-          min-height: 64px;
+          min-height: 62px;
 
-          flex-shrink: 0;
-
-          padding: 10px 15px;
+          padding: 10px;
 
           display: flex;
           align-items: flex-end;
 
           gap: 8px;
 
-          background: #fff;
-
           border-top: 1px solid #eaecf0;
+
+          background: #ffffff;
         }
 
         .aw-compose textarea {
           flex: 1;
 
-          min-width: 0;
-
-          height: 42px;
-
-          max-height: 100px;
-
-          resize: none;
+          min-height: 42px;
+          max-height: 110px;
 
           padding: 11px 12px;
 
-          border: 1px solid #eaecf0;
+          resize: none;
 
-          border-radius: 9px;
+          border: 1px solid #eaecf0;
+          border-radius: 10px;
 
           outline: none;
 
           background: #f9fafb;
 
-          font-family: inherit;
+          color: #101828;
 
-          font-size: 10px;
+          font-family: inherit;
+          font-size: 11px;
         }
 
         .aw-compose textarea:focus {
           border-color: #c9a227;
-
-          background: #fff;
+          background: #ffffff;
         }
 
         .aw-send {
@@ -1158,77 +1401,447 @@ export default function WhatsApp() {
           flex-shrink: 0;
 
           border: 0;
-
-          border-radius: 9px;
+          border-radius: 10px;
 
           background: #111827;
-
-          color: #fff;
+          color: #ffffff;
 
           cursor: pointer;
         }
 
-        .aw-send:disabled {
-          opacity: .4;
+        .aw-send:hover {
+          opacity: .9;
+        }
 
+        .aw-send:disabled {
+          opacity: .45;
           cursor: not-allowed;
         }
 
-        /* ======================================================
-           CADASTRO
-        ====================================================== */
+        .aw-error {
+          padding: 7px 12px;
 
-        .aw-cadastro {
+          color: #b42318;
+
+          background: #fef3f2;
+
+          border-top: 1px solid #fecdca;
+
+          font-size: 9px;
+        }
+
+        /* =====================================================
+           CADASTROS
+        ===================================================== */
+
+        .aw-register {
           flex: 1;
+          min-height: 0;
 
+          display: flex;
+
+          overflow: hidden;
+
+          background: #ffffff;
+
+          border: 1px solid #eaecf0;
+          border-radius: 12px;
+        }
+
+        .aw-register-list {
+          width: 350px;
+          min-width: 350px;
+
+          display: flex;
+          flex-direction: column;
+
+          border-right: 1px solid #eaecf0;
+        }
+
+        .aw-register-list-header {
+          padding: 16px;
+
+          border-bottom: 1px solid #eaecf0;
+        }
+
+        .aw-register-title {
+          display: flex;
+          align-items: center;
+
+          gap: 10px;
+
+          margin-bottom: 13px;
+        }
+
+        .aw-register-icon {
+          width: 36px;
+          height: 36px;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          border-radius: 10px;
+
+          background: #111827;
+          color: #ffffff;
+        }
+
+        .aw-register-title strong {
+          display: block;
+
+          color: #101828;
+
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        .aw-register-title span {
+          display: block;
+
+          margin-top: 2px;
+
+          color: #98a2b3;
+
+          font-size: 10px;
+        }
+
+        .aw-register-items {
+          flex: 1;
           min-height: 0;
 
           overflow-y: auto;
-
-          padding: 22px;
-
-          background: #f5f6f8;
         }
 
-        .aw-cadastro-inner {
-          max-width: 980px;
+        .aw-register-item {
+          width: 100%;
 
-          margin: 0 auto;
+          padding: 13px;
+
+          display: flex;
+          align-items: center;
+
+          gap: 10px;
+
+          border: 0;
+          border-bottom: 1px solid #f2f4f7;
+
+          background: #ffffff;
+
+          text-align: left;
+
+          cursor: pointer;
         }
 
-        .aw-section {
-          margin-bottom: 18px;
+        .aw-register-item:hover {
+          background: #f9fafb;
         }
 
-        .aw-section-title {
-          margin-bottom: 9px;
+        .aw-register-item.active {
+          background: #f2f4f7;
 
-          color: #344054;
+          box-shadow:
+            inset 3px 0 0 #c9a227;
+        }
+
+        .aw-register-avatar {
+          width: 40px;
+          height: 40px;
+          min-width: 40px;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          border-radius: 50%;
+
+          background: #f2f4f7;
+          color: #475467;
+        }
+
+        .aw-register-item-info {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .aw-register-item-name {
+          overflow: hidden;
+
+          color: #101828;
+
+          font-size: 11px;
+          font-weight: 800;
+
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+
+        .aw-register-item-sub {
+          margin-top: 3px;
+
+          color: #98a2b3;
 
           font-size: 9px;
 
-          font-weight: 800;
-
-          letter-spacing: .04em;
-
-          text-transform: uppercase;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
         }
 
-        .aw-fields {
+        .aw-details {
+          flex: 1;
+          min-width: 0;
+
+          overflow-y: auto;
+
+          padding: 24px;
+        }
+
+        .aw-details-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+
+          gap: 15px;
+
+          margin-bottom: 22px;
+        }
+
+        .aw-details-person {
+          display: flex;
+          align-items: center;
+
+          gap: 12px;
+
+          min-width: 0;
+        }
+
+        .aw-details-avatar {
+          width: 52px;
+          height: 52px;
+          min-width: 52px;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          border-radius: 14px;
+
+          background: #111827;
+          color: #ffffff;
+        }
+
+        .aw-details-person strong {
+          display: block;
+
+          color: #101828;
+
+          font-size: 16px;
+          font-weight: 800;
+        }
+
+        .aw-details-person span {
+          display: block;
+
+          margin-top: 3px;
+
+          color: #98a2b3;
+
+          font-size: 10px;
+        }
+
+        .aw-edit-button {
+          height: 36px;
+
+          padding: 0 12px;
+
+          display: flex;
+          align-items: center;
+
+          gap: 6px;
+
+          border: 1px solid #eaecf0;
+          border-radius: 9px;
+
+          background: #ffffff;
+
+          color: #344054;
+
+          font-family: inherit;
+          font-size: 10px;
+          font-weight: 700;
+
+          cursor: pointer;
+        }
+
+        .aw-edit-button:hover {
+          background: #f9fafb;
+        }
+
+        .aw-detail-grid {
           display: grid;
 
           grid-template-columns:
-            repeat(
-              2,
-              minmax(0, 1fr)
-            );
+            repeat(2, minmax(0, 1fr));
 
           gap: 10px;
         }
 
+        .aw-detail-card {
+          padding: 13px;
+
+          border: 1px solid #eaecf0;
+          border-radius: 10px;
+
+          background: #ffffff;
+        }
+
+        .aw-detail-label {
+          display: flex;
+          align-items: center;
+
+          gap: 5px;
+
+          margin-bottom: 5px;
+
+          color: #98a2b3;
+
+          font-size: 8px;
+          font-weight: 800;
+
+          text-transform: uppercase;
+        }
+
+        .aw-detail-value {
+          color: #101828;
+
+          font-size: 11px;
+          font-weight: 700;
+
+          word-break: break-word;
+        }
+
+        .aw-status {
+          display: inline-flex;
+          align-items: center;
+
+          padding: 4px 8px;
+
+          border-radius: 20px;
+
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        .aw-status.success {
+          background: #ecfdf3;
+          color: #15803d;
+        }
+
+        .aw-status.warning {
+          background: #fffaeb;
+          color: #b54708;
+        }
+
+        .aw-status.danger {
+          background: #fef3f2;
+          color: #b42318;
+        }
+
+        .aw-status.neutral {
+          background: #f2f4f7;
+          color: #475467;
+        }
+
+        /* =====================================================
+           MODAL EDIÇÃO
+        ===================================================== */
+
+        .aw-modal-overlay {
+          position: fixed;
+
+          inset: 0;
+
+          z-index: 9999;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          padding: 20px;
+
+          background: rgba(16,24,40,.45);
+        }
+
+        .aw-modal {
+          width: min(760px, 100%);
+          max-height: 90vh;
+
+          display: flex;
+          flex-direction: column;
+
+          overflow: hidden;
+
+          background: #ffffff;
+
+          border-radius: 14px;
+
+          box-shadow:
+            0 20px 50px rgba(16,24,40,.18);
+        }
+
+        .aw-modal-header {
+          padding: 16px 18px;
+
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+
+          border-bottom: 1px solid #eaecf0;
+        }
+
+        .aw-modal-header strong {
+          color: #101828;
+
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .aw-close {
+          width: 30px;
+          height: 30px;
+
+          display: flex;
+          align-items: center;
+          justify-content: center;
+
+          border: 0;
+          border-radius: 8px;
+
+          background: #f2f4f7;
+
+          color: #667085;
+
+          cursor: pointer;
+        }
+
+        .aw-modal-body {
+          padding: 18px;
+
+          overflow-y: auto;
+        }
+
+        .aw-form-grid {
+          display: grid;
+
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+
+          gap: 12px;
+        }
+
         .aw-field {
           display: flex;
-
           flex-direction: column;
 
           gap: 5px;
@@ -1239,114 +1852,63 @@ export default function WhatsApp() {
         }
 
         .aw-field label {
-          color: #667085;
+          color: #475467;
 
-          font-size: 8px;
-
+          font-size: 9px;
           font-weight: 800;
-
-          text-transform: uppercase;
         }
 
-        .aw-field input,
-        .aw-field select {
+        .aw-field input {
           width: 100%;
-
           height: 38px;
 
           padding: 0 10px;
 
-          border: 1px solid #e4e7ec;
-
+          border: 1px solid #eaecf0;
           border-radius: 8px;
 
           outline: none;
 
-          background: #fff;
-
           color: #101828;
 
           font-family: inherit;
-
           font-size: 10px;
         }
 
-        .aw-field input:focus,
-        .aw-field select:focus {
+        .aw-field input:focus {
           border-color: #c9a227;
         }
 
-        .aw-field input[readonly] {
-          background: #fafafa;
-
-          color: #475467;
-        }
-
-        .aw-region {
-          grid-column: 1 / -1;
-
-          padding: 13px;
-
-          border: 1px solid #eadca7;
-
-          border-radius: 9px;
-
-          background: #fffdf4;
-        }
-
-        .aw-region-title {
-          display: flex;
-          align-items: center;
-
-          gap: 6px;
-
-          margin-bottom: 8px;
-
-          color: #806600;
-
-          font-size: 9px;
-
-          font-weight: 800;
-        }
-
-        .aw-save-bar {
-          margin-top: 14px;
+        .aw-modal-footer {
+          padding: 12px 18px;
 
           display: flex;
           align-items: center;
           justify-content: space-between;
 
           gap: 10px;
-        }
 
-        .aw-success {
-          color: #15803d;
-
-          font-size: 9px;
-
-          font-weight: 700;
+          border-top: 1px solid #eaecf0;
         }
 
         .aw-save {
-          height: 38px;
+          height: 36px;
 
-          padding: 0 15px;
+          padding: 0 14px;
 
-          display: inline-flex;
+          display: flex;
           align-items: center;
 
-          gap: 6px;
+          gap: 7px;
 
           border: 0;
-
-          border-radius: 8px;
+          border-radius: 9px;
 
           background: #111827;
+          color: #ffffff;
 
-          color: #fff;
-
-          font-size: 9px;
-
+          font-family: inherit;
+          font-size: 10px;
           font-weight: 800;
 
           cursor: pointer;
@@ -1354,169 +1916,146 @@ export default function WhatsApp() {
 
         .aw-save:disabled {
           opacity: .5;
-
           cursor: not-allowed;
         }
 
-        /* ======================================================
-           EMPTY
-        ====================================================== */
+        .aw-success-message {
+          color: #15803d;
+
+          font-size: 9px;
+          font-weight: 700;
+        }
+
+        /* =====================================================
+           VAZIO
+        ===================================================== */
 
         .aw-empty {
           flex: 1;
 
           display: flex;
-
           align-items: center;
           justify-content: center;
+
+          text-align: center;
 
           color: #98a2b3;
 
           font-size: 11px;
-
-          text-align: center;
         }
 
-        /* ======================================================
-           FOTO
-        ====================================================== */
+        .aw-empty svg {
+          display: block;
 
-        .aw-photo-modal {
-          position: fixed;
-
-          inset: 0;
-
-          z-index: 9999;
-
-          display: flex;
-
-          align-items: center;
-          justify-content: center;
-
-          padding: 20px;
-
-          background: rgba(0,0,0,.82);
-
-          cursor: pointer;
+          margin: 0 auto 8px;
         }
 
-        .aw-photo-modal img {
-          max-width: 94vw;
-
-          max-height: 90vh;
-
-          object-fit: contain;
-
-          border-radius: 9px;
-        }
-
-        .aw-photo-close {
-          position: fixed;
-
-          top: 18px;
-          right: 18px;
-
-          width: 38px;
-          height: 38px;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          border: 0;
-
-          border-radius: 50%;
-
-          background: #fff;
-
-          cursor: pointer;
-        }
-
-        /* ======================================================
+        /* =====================================================
            RESPONSIVO
-        ====================================================== */
+        ===================================================== */
 
-        @media (max-width: 800px) {
+        @media (max-width: 900px) {
 
-          .aw-sidebar {
+          .aw-chat-list,
+          .aw-register-list {
             width: 280px;
             min-width: 280px;
           }
 
-          .aw-fields {
+          .aw-message {
+            max-width: 82%;
+          }
+
+          .aw-detail-grid {
             grid-template-columns: 1fr;
           }
-
-          .aw-field.full,
-          .aw-region {
-            grid-column: auto;
-          }
-
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 650px) {
+
+          .aw-tabs {
+            overflow-x: auto;
+          }
 
           .aw-tab {
-            flex: 1;
-
-            padding: 0 8px;
-
-            font-size: 9px;
+            padding: 0 12px;
+            flex-shrink: 0;
           }
 
-          .aw-sidebar {
-            width: 78px;
-            min-width: 78px;
+          .aw-chat-list,
+          .aw-register-list {
+            width: 85px;
+            min-width: 85px;
           }
 
-          .aw-sidebar-header {
+          .aw-chat-list-header,
+          .aw-register-list-header {
             padding: 10px;
           }
 
-          .aw-heading {
-            justify-content: center;
-          }
-
-          .aw-heading-text,
+          .aw-chat-title strong,
+          .aw-chat-title span,
           .aw-search,
-          .aw-list-sub,
-          .aw-list-time,
-          .aw-status {
+          .aw-register-title strong,
+          .aw-register-title span {
             display: none;
           }
 
-          .aw-list-item {
+          .aw-chat-title,
+          .aw-register-title {
             justify-content: center;
-
-            padding: 11px 5px;
           }
 
-          .aw-content-header {
-            padding: 10px;
+          .aw-conversation,
+          .aw-register-item {
+            justify-content: center;
+            padding: 10px 5px;
           }
 
-          .aw-edit {
-            width: 32px;
+          .aw-conversation-info,
+          .aw-register-item-info {
+            display: none;
+          }
 
-            padding: 0;
+          .aw-chat-header {
+            padding: 10px 12px;
+          }
 
-            justify-content: center;
-
-            font-size: 0;
+          .aw-online {
+            display: none;
           }
 
           .aw-messages {
-            padding: 10px;
+            padding: 12px;
           }
 
           .aw-message {
             max-width: 88%;
           }
 
-          .aw-cadastro {
-            padding: 12px;
+          .aw-compose {
+            padding: 8px;
           }
 
+          .aw-details {
+            padding: 14px;
+          }
+
+          .aw-details-header {
+            align-items: flex-start;
+          }
+
+          .aw-details-person strong {
+            font-size: 13px;
+          }
+
+          .aw-form-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .aw-field.full {
+            grid-column: auto;
+          }
         }
 
       `}</style>
@@ -1528,73 +2067,85 @@ export default function WhatsApp() {
       <div className="aw-tabs">
 
         <button
-          type="button"
-          className={`aw-tab ${
-            aba === "whatsapp"
-              ? "active"
-              : ""
-          }`}
+          className={
+            aba === "chat"
+              ? "aw-tab active"
+              : "aw-tab"
+          }
           onClick={() =>
-            setAba("whatsapp")
+            setAba("chat")
           }
         >
-          <MessageCircle size={14} />
+          <MessageCircle size={15} />
+          Chat
 
-          WhatsApp
+          <span className="aw-tab-count">
+            {conversas.length}
+          </span>
         </button>
 
         <button
-          type="button"
-          className={`aw-tab ${
-            aba === "cadastro"
-              ? "active"
-              : ""
-          }`}
+          className={
+            aba === "colaboradores"
+              ? "aw-tab active"
+              : "aw-tab"
+          }
           onClick={() =>
-            setAba("cadastro")
+            setAba("colaboradores")
           }
         >
-          <UserPlus size={14} />
+          <Users size={15} />
+          Colaboradores
 
-          Cadastro pendente
+          <span className="aw-tab-count">
+            {colaboradores.length}
+          </span>
+        </button>
 
-          {cadastros.length > 0 && (
-            <span className="aw-count">
-              {cadastros.length}
-            </span>
-          )}
+        <button
+          className={
+            aba === "parceiros"
+              ? "aw-tab active"
+              : "aw-tab"
+          }
+          onClick={() =>
+            setAba("parceiros")
+          }
+        >
+          <Handshake size={15} />
+          Parceiros
+
+          <span className="aw-tab-count">
+            {parceiros.length}
+          </span>
         </button>
 
       </div>
 
       {/* ========================================================
-          WHATSAPP
+          CHAT
       ======================================================== */}
 
-      {aba === "whatsapp" && (
+      {aba === "chat" && (
+        <div className="aw-chat">
 
-        <div className="aw-panel">
+          {/* LISTA */}
 
-          <aside className="aw-sidebar">
+          <aside className="aw-chat-list">
 
-            <div className="aw-sidebar-header">
+            <div className="aw-chat-list-header">
 
-              <div className="aw-heading">
+              <div className="aw-chat-title">
 
-                <div className="aw-heading-icon">
+                <div className="aw-chat-title-icon">
                   <MessageCircle size={19} />
                 </div>
 
-                <div className="aw-heading-text">
-
-                  <strong>
-                    WhatsApp
-                  </strong>
-
+                <div>
+                  <strong>Chat</strong>
                   <span>
                     Atendimento Águia Express
                   </span>
-
                 </div>
 
               </div>
@@ -1604,9 +2155,11 @@ export default function WhatsApp() {
                 <Search size={14} />
 
                 <input
-                  value={busca}
-                  onChange={(e) =>
-                    setBusca(e.target.value)
+                  value={buscaChat}
+                  onChange={(event) =>
+                    setBuscaChat(
+                      event.target.value
+                    )
                   }
                   placeholder="Pesquisar conversa..."
                 />
@@ -1615,17 +2168,18 @@ export default function WhatsApp() {
 
             </div>
 
-            <div className="aw-list">
+            <div className="aw-chat-list-items">
 
-              {conversasFiltradas.length ===
-              0 ? (
-
+              {conversasFiltradas.length === 0 ? (
                 <div className="aw-empty">
-                  Nenhuma conversa encontrada.
+                  <div>
+                    <MessageCircle
+                      size={25}
+                    />
+                    Nenhuma conversa encontrada.
+                  </div>
                 </div>
-
               ) : (
-
                 conversasFiltradas.map(
                   (conversa) => {
 
@@ -1635,16 +2189,14 @@ export default function WhatsApp() {
                       ];
 
                     return (
-
                       <button
                         key={conversa.id}
-                        type="button"
-                        className={`aw-list-item ${
+                        className={
                           selecionada?.id ===
                           conversa.id
-                            ? "active"
-                            : ""
-                        }`}
+                            ? "aw-conversation active"
+                            : "aw-conversation"
+                        }
                         onClick={() =>
                           setSelecionada(
                             conversa
@@ -1653,80 +2205,83 @@ export default function WhatsApp() {
                       >
 
                         <div className="aw-avatar">
-
-                          {(conversa.nome ||
-                            "C")
-                            .charAt(0)
-                            .toUpperCase()}
-
+                          <MessageCircle
+                            size={17}
+                          />
                         </div>
 
-                        <div className="aw-list-info">
+                        <div className="aw-conversation-info">
 
-                          <div className="aw-list-top">
+                          <div className="aw-conversation-top">
 
-                            <span className="aw-list-name">
+                            <span className="aw-conversation-name">
                               {conversa.nome ||
                                 "Cliente"}
                             </span>
 
-                            <span className="aw-list-time">
-                              {formatarData(
-                                ultima?.em
+                            <span className="aw-conversation-time">
+                              {formatarHora(
+                                conversa.atualizadoEm
                               )}
                             </span>
 
                           </div>
 
-                          <div className="aw-list-sub">
+                          <div className="aw-conversation-number">
                             {formatarNumero(
                               conversa.numero
                             )}
                           </div>
 
-                          <div className="aw-list-sub">
+                          <div className="aw-conversation-last">
                             {ultima?.texto ||
-                              "Nova mensagem"}
+                              "Sem mensagens"}
                           </div>
+
+                          {conversa.atendimentoHumano && (
+                            <span className="aw-human">
+                              Atendimento humano
+                            </span>
+                          )}
 
                         </div>
 
                       </button>
-
                     );
                   }
                 )
-
               )}
 
             </div>
 
           </aside>
 
-          <section className="aw-content">
+          {/* CHAT */}
+
+          <section className="aw-chat-area">
 
             {!selecionada ? (
-
               <div className="aw-empty">
-                Selecione uma conversa.
+                <div>
+                  <MessageCircle
+                    size={35}
+                  />
+                  Selecione uma conversa.
+                </div>
               </div>
-
             ) : (
-
               <>
+                <header className="aw-chat-header">
 
-                <header className="aw-content-header">
+                  <div className="aw-chat-user">
 
-                  <div className="aw-user">
-
-                    <div className="aw-avatar">
-                      {(selecionada.nome ||
-                        "C")
-                        .charAt(0)
-                        .toUpperCase()}
+                    <div className="aw-chat-user-avatar">
+                      <MessageCircle
+                        size={18}
+                      />
                     </div>
 
-                    <div className="aw-user-info">
+                    <div className="aw-chat-user-info">
 
                       <strong>
                         {selecionada.nome ||
@@ -1743,104 +2298,89 @@ export default function WhatsApp() {
 
                   </div>
 
+                  <div className="aw-online">
+
+                    <span className="aw-online-dot" />
+
+                    WhatsApp conectado
+
+                  </div>
+
                 </header>
 
                 <div className="aw-messages">
 
                   <div className="aw-messages-inner">
 
-                    {(
-                      selecionada.mensagens ||
-                      []
-                    ).map(
-                      (
-                        item,
-                        index
-                      ) => {
+                    {(selecionada.mensagens ||
+                      []).map(
+                      (mensagem, index) => {
 
-                        const fotos =
-                          obterFotosMensagem(
-                            item
+                        const ehAssistente =
+                          mensagem.papel ===
+                          "assistente";
+
+                        const imagem =
+                          obterUrlImagem(
+                            mensagem
                           );
 
                         return (
-
                           <div
-                            key={index}
-                            className={`aw-message-row ${
-                              item.papel
-                            }`}
+                            key={`${selecionada.id}-${index}`}
+                            className={
+                              ehAssistente
+                                ? "aw-message-row assistant"
+                                : "aw-message-row client"
+                            }
                           >
 
                             <div
-                              className={`aw-message ${
-                                item.papel
-                              }`}
+                              className={
+                                ehAssistente
+                                  ? "aw-message assistant"
+                                  : "aw-message client"
+                              }
                             >
 
-                              {item.texto && (
+                              {imagem && (
+                                <img
+                                  src={imagem}
+                                  alt="Imagem enviada pelo WhatsApp"
+                                  className="aw-message-image"
+                                  onClick={() =>
+                                    window.open(
+                                      imagem,
+                                      "_blank",
+                                      "noopener,noreferrer"
+                                    )
+                                  }
+                                />
+                              )}
 
+                              {mensagem.texto && (
                                 <div className="aw-message-text">
-                                  {item.texto}
+                                  {mensagem.texto}
                                 </div>
-
                               )}
 
-                              {fotos.map(
-                                (
-                                  foto,
-                                  fotoIndex
-                                ) => (
-
-                                  <img
-                                    key={
-                                      fotoIndex
-                                    }
-                                    src={foto}
-                                    alt="Imagem recebida"
-                                    className="aw-message-image"
-                                    onClick={() =>
-                                      setFotoAberta(
-                                        foto
-                                      )
-                                    }
-                                  />
-
-                                )
-                              )}
-
-                              {!item.texto &&
-                                fotos.length ===
-                                  0 && (
-
+                              {!mensagem.texto &&
+                                !imagem && (
                                   <div className="aw-message-text">
-
-                                    <ImageIcon
-                                      size={13}
-                                      style={{
-                                        verticalAlign:
-                                          "middle",
-                                        marginRight:
-                                          5,
-                                      }}
-                                    />
-
-                                    Mídia recebida
-
+                                    {mensagem.tipo ||
+                                      "Mensagem"}
                                   </div>
-
                                 )}
 
                               <div className="aw-message-time">
-                                {formatarData(
-                                  item.em
+                                {formatarHora(
+                                  mensagem.em
                                 )}
                               </div>
 
                             </div>
 
                           </div>
-
                         );
                       }
                     )}
@@ -1849,32 +2389,34 @@ export default function WhatsApp() {
 
                 </div>
 
+                {erroChat && (
+                  <div className="aw-error">
+                    {erroChat}
+                  </div>
+                )}
+
                 <div className="aw-compose">
 
                   <textarea
                     value={texto}
-                    onChange={(e) =>
+                    onChange={(event) =>
                       setTexto(
-                        e.target.value
+                        event.target.value
                       )
                     }
-                    onKeyDown={(e) => {
-
+                    onKeyDown={(event) => {
                       if (
-                        e.key === "Enter" &&
-                        !e.shiftKey
+                        event.key === "Enter" &&
+                        !event.shiftKey
                       ) {
-                        e.preventDefault();
-
+                        event.preventDefault();
                         enviarMensagem();
                       }
-
                     }}
                     placeholder="Digite uma mensagem..."
                   />
 
                   <button
-                    type="button"
                     className="aw-send"
                     disabled={
                       enviando ||
@@ -1884,49 +2426,43 @@ export default function WhatsApp() {
                       enviarMensagem
                     }
                   >
-                    <Send size={16} />
+                    <Send size={17} />
                   </button>
 
                 </div>
-
               </>
-
             )}
 
           </section>
 
         </div>
-
       )}
 
       {/* ========================================================
-          CADASTROS
+          COLABORADORES
       ======================================================== */}
 
-      {aba === "cadastro" && (
+      {aba === "colaboradores" && (
+        <div className="aw-register">
 
-        <div className="aw-panel">
+          <aside className="aw-register-list">
 
-          <aside className="aw-sidebar">
+            <div className="aw-register-list-header">
 
-            <div className="aw-sidebar-header">
+              <div className="aw-register-title">
 
-              <div className="aw-heading">
-
-                <div className="aw-heading-icon">
-                  <UserPlus size={19} />
+                <div className="aw-register-icon">
+                  <UserPlus size={18} />
                 </div>
 
-                <div className="aw-heading-text">
-
+                <div>
                   <strong>
-                    Cadastros
+                    Colaboradores
                   </strong>
 
                   <span>
-                    Entregadores pendentes
+                    Cadastros recebidos pelo WhatsApp
                   </span>
-
                 </div>
 
               </div>
@@ -1936,631 +2472,806 @@ export default function WhatsApp() {
                 <Search size={14} />
 
                 <input
-                  value={buscaCadastro}
-                  onChange={(e) =>
-                    setBuscaCadastro(
-                      e.target.value
+                  value={buscaColaborador}
+                  onChange={(event) =>
+                    setBuscaColaborador(
+                      event.target.value
                     )
                   }
-                  placeholder="Pesquisar entregador..."
+                  placeholder="Pesquisar..."
                 />
 
               </div>
 
             </div>
 
-            <div className="aw-list">
+            <div className="aw-register-items">
 
-              {cadastrosFiltrados.length ===
+              {colaboradoresFiltrados.length ===
               0 ? (
-
                 <div className="aw-empty">
-                  Nenhum cadastro pendente.
+                  <div>
+                    <UserPlus size={25} />
+                    Nenhum colaborador encontrado.
+                  </div>
                 </div>
-
               ) : (
-
-                cadastrosFiltrados.map(
-                  (cadastro) => (
-
+                colaboradoresFiltrados.map(
+                  (colaborador) => (
                     <button
-                      key={cadastro.id}
-                      type="button"
-                      className={`aw-list-item ${
-                        cadastroSelecionado?.id ===
-                        cadastro.id
-                          ? "active"
-                          : ""
-                      }`}
-                      onClick={() => {
-                        setCadastroSelecionado(
-                          cadastro
-                        );
-
-                        setEditando(null);
-                      }}
+                      key={colaborador.id}
+                      className={
+                        colaboradorSelecionado?.id ===
+                        colaborador.id
+                          ? "aw-register-item active"
+                          : "aw-register-item"
+                      }
+                      onClick={() =>
+                        setColaboradorSelecionado(
+                          colaborador
+                        )
+                      }
                     >
 
-                      <div className="aw-avatar">
-
-                        {(
-                          cadastro.nomeCompleto ||
-                          "E"
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-
+                      <div className="aw-register-avatar">
+                        <UserPlus size={17} />
                       </div>
 
-                      <div className="aw-list-info">
+                      <div className="aw-register-item-info">
 
-                        <div className="aw-list-name">
-
-                          {cadastro.nomeCompleto ||
-                            "Cadastro em andamento"}
-
+                        <div className="aw-register-item-name">
+                          {colaborador.nomeCompleto ||
+                            "Sem nome"}
                         </div>
 
-                        <div className="aw-list-sub">
-
-                          {formatarNumero(
-                            cadastro.numeroWhatsApp ||
-                              ""
-                          )}
-
-                        </div>
-
-                        <div className="aw-status">
-
-                          <Clock3 size={8} />
-
-                          {String(
-                            cadastro.status ||
-                              "PENDENTE"
-                          ).replace(
-                            "_",
-                            " "
-                          )}
-
+                        <div className="aw-register-item-sub">
+                          {colaborador.regiaoNome ||
+                            colaborador.telefone ||
+                            "Cadastro"}
                         </div>
 
                       </div>
 
                     </button>
-
                   )
                 )
-
               )}
 
             </div>
 
           </aside>
 
-          <section className="aw-content">
+          <section className="aw-details">
 
-            {!cadastroSelecionado ? (
-
+            {!colaboradorSelecionado ? (
               <div className="aw-empty">
                 <div>
-                  <UserPlus
-                    size={35}
-                    style={{
-                      display: "block",
-                      margin: "0 auto 8px",
-                    }}
-                  />
-
-                  Selecione um cadastro.
+                  <UserPlus size={35} />
+                  Selecione um colaborador.
                 </div>
               </div>
-
             ) : (
-
               <>
 
-                <header className="aw-content-header">
+                <div className="aw-details-header">
 
-                  <div className="aw-user">
+                  <div className="aw-details-person">
 
-                    <div className="aw-avatar">
-                      {(
-                        cadastroSelecionado
-                          .nomeCompleto ||
-                        "E"
-                      )
-                        .charAt(0)
-                        .toUpperCase()}
+                    <div className="aw-details-avatar">
+                      <UserPlus size={23} />
                     </div>
 
-                    <div className="aw-user-info">
+                    <div>
 
                       <strong>
-                        {cadastroSelecionado.nomeCompleto ||
-                          "Cadastro de entregador"}
+                        {colaboradorSelecionado.nomeCompleto ||
+                          "Sem nome"}
                       </strong>
 
                       <span>
-                        {formatarNumero(
-                          cadastroSelecionado.numeroWhatsApp ||
-                            ""
-                        )}
+                        {colaboradorSelecionado.numeroWhatsApp ||
+                          colaboradorSelecionado.telefone ||
+                          "Sem telefone"}
                       </span>
 
                     </div>
 
                   </div>
 
-                  {!editando && (
+                  <button
+                    className="aw-edit-button"
+                    onClick={() =>
+                      iniciarEdicaoColaborador(
+                        colaboradorSelecionado
+                      )
+                    }
+                  >
+                    <Pencil size={13} />
+                    Editar cadastro
+                  </button>
 
-                    <button
-                      type="button"
-                      className="aw-edit"
-                      onClick={() =>
-                        iniciarEdicao(
-                          cadastroSelecionado
-                        )
-                      }
-                    >
+                </div>
 
-                      <Pencil size={13} />
+                <div className="aw-detail-grid">
 
-                      EDITAR CADASTRO
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <UserPlus size={11} />
+                      Nome completo
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.nomeCompleto ||
+                        "—"}
+                    </div>
+                  </div>
 
-                    </button>
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <Phone size={11} />
+                      Telefone
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.telefone ||
+                        colaboradorSelecionado.telefoneContato ||
+                        "—"}
+                    </div>
+                  </div>
 
-                  )}
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      CEP
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.cep ||
+                        "—"}
+                    </div>
+                  </div>
 
-                </header>
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Número
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.numero ||
+                        "—"}
+                    </div>
+                  </div>
 
-                <div className="aw-cadastro">
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <MapPin size={11} />
+                      Região
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.regiaoNome ||
+                        "—"}
+                    </div>
+                  </div>
 
-                  <div className="aw-cadastro-inner">
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      CPF
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.cpf ||
+                        "—"}
+                    </div>
+                  </div>
 
-                    {/* DADOS PESSOAIS */}
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Chave Pix
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.pix ||
+                        "—"}
+                    </div>
+                  </div>
 
-                    <div className="aw-section">
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Banco
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.banco ||
+                        "—"}
+                    </div>
+                  </div>
 
-                      <div className="aw-section-title">
-                        Dados pessoais
-                      </div>
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Favorecido
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.favorecido ||
+                        "—"}
+                    </div>
+                  </div>
 
-                      <div className="aw-fields">
-
-                        <div className="aw-field full">
-
-                          <label>
-                            Nome completo
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.nomeCompleto ||
-                                  ""
-                                : cadastroSelecionado.nomeCompleto ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "nomeCompleto",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            WhatsApp
-                          </label>
-
-                          <input
-                            value={formatarNumero(
-                              cadastroSelecionado.numeroWhatsApp ||
-                                ""
-                            )}
-                            readOnly
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            CPF
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.cpf ||
-                                  ""
-                                : cadastroSelecionado.cpf ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "cpf",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            Telefone
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.telefone ||
-                                  ""
-                                : cadastroSelecionado.telefone ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "telefone",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            Telefone para contato
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.telefoneContato ||
-                                  ""
-                                : cadastroSelecionado.telefoneContato ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "telefoneContato",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                      </div>
-
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Status
                     </div>
 
-                    {/* ENDEREÇO */}
+                    <div>
+                      <span
+                        className={`aw-status ${statusClasse(
+                          colaboradorSelecionado.status
+                        )}`}
+                      >
+                        {colaboradorSelecionado.status ||
+                          "CADASTRO"}
+                      </span>
+                    </div>
+                  </div>
 
-                    <div className="aw-section">
-
-                      <div className="aw-section-title">
-                        Endereço
-                      </div>
-
-                      <div className="aw-fields">
-
-                        <div className="aw-field">
-
-                          <label>
-                            CEP
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.cep || ""
-                                : cadastroSelecionado.cep ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "cep",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            Número
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.numero ||
-                                  ""
-                                : cadastroSelecionado.numero ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "numero",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field full">
-
-                          <label>
-                            Rua
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.rua || ""
-                                : cadastroSelecionado.rua ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "rua",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        {/* REGIÃO */}
-
-                        <div className="aw-region">
-
-                          <div className="aw-region-title">
-
-                            <MapPin size={13} />
-
-                            Região escolhida
-
-                          </div>
-
-                          {editando ? (
-
-                            <select
-                              value={
-                                editando.regiaoEscolhida ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                alterarCampo(
-                                  "regiaoEscolhida",
-                                  e.target.value
-                                )
-                              }
-                            >
-
-                              <option value="">
-                                Selecione uma região
-                              </option>
-
-                              {REGIOES.map(
-                                (regiao) => (
-
-                                  <option
-                                    key={regiao}
-                                    value={regiao}
-                                  >
-                                    {regiao}
-                                  </option>
-
-                                )
-                              )}
-
-                            </select>
-
-                          ) : (
-
-                            <input
-                              value={
-                                cadastroSelecionado.regiaoEscolhida ||
-                                "Ainda não escolhida"
-                              }
-                              readOnly
-                            />
-
-                          )}
-
-                        </div>
-
-                      </div>
-
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Origem
                     </div>
 
-                    {/* PAGAMENTO */}
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.origem ||
+                        "WHATSAPP"}
+                    </div>
+                  </div>
 
-                    <div className="aw-section">
-
-                      <div className="aw-section-title">
-                        Dados de pagamento
-                      </div>
-
-                      <div className="aw-fields">
-
-                        <div className="aw-field">
-
-                          <label>
-                            Chave Pix
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.pix || ""
-                                : cadastroSelecionado.pix ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "pix",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field">
-
-                          <label>
-                            Banco
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.banco || ""
-                                : cadastroSelecionado.banco ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "banco",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                        <div className="aw-field full">
-
-                          <label>
-                            Favorecido
-                          </label>
-
-                          <input
-                            value={
-                              editando
-                                ? editando.favorecido ||
-                                  ""
-                                : cadastroSelecionado.favorecido ||
-                                  ""
-                            }
-                            readOnly={!editando}
-                            onChange={(e) =>
-                              alterarCampo(
-                                "favorecido",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                        </div>
-
-                      </div>
-
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Cadastro
                     </div>
 
-                    {/* SALVAR */}
-
-                    {editando && (
-
-                      <div className="aw-save-bar">
-
-                        <span className="aw-success">
-                          {mensagemSalvar}
-                        </span>
-
-                        <button
-                          type="button"
-                          className="aw-save"
-                          disabled={salvando}
-                          onClick={
-                            salvarCadastro
-                          }
-                        >
-
-                          <Save size={13} />
-
-                          {salvando
-                            ? "SALVANDO..."
-                            : "SALVAR ALTERAÇÕES"}
-
-                        </button>
-
-                      </div>
-
-                    )}
-
+                    <div className="aw-detail-value">
+                      {formatarData(
+                        colaboradorSelecionado.criadoEm
+                      ) || "—"}
+                    </div>
                   </div>
 
                 </div>
 
               </>
-
             )}
 
           </section>
 
         </div>
-
       )}
 
       {/* ========================================================
-          FOTO
+          PARCEIROS
       ======================================================== */}
 
-      {fotoAberta && (
+      {aba === "parceiros" && (
+        <div className="aw-register">
 
-        <div
-          className="aw-photo-modal"
-          onClick={() =>
-            setFotoAberta(null)
-          }
-        >
+          <aside className="aw-register-list">
 
-          <button
-            type="button"
-            className="aw-photo-close"
-            onClick={(e) => {
-              e.stopPropagation();
+            <div className="aw-register-list-header">
 
-              setFotoAberta(null);
-            }}
-          >
-            <X size={18} />
-          </button>
+              <div className="aw-register-title">
 
-          <img
-            src={fotoAberta}
-            alt="Imagem"
-            onClick={(e) =>
-              e.stopPropagation()
-            }
-          />
+                <div className="aw-register-icon">
+                  <Building2 size={18} />
+                </div>
+
+                <div>
+                  <strong>
+                    Parceiros
+                  </strong>
+
+                  <span>
+                    Solicitações recebidas pelo WhatsApp
+                  </span>
+                </div>
+
+              </div>
+
+              <div className="aw-search">
+
+                <Search size={14} />
+
+                <input
+                  value={buscaParceiro}
+                  onChange={(event) =>
+                    setBuscaParceiro(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Pesquisar..."
+                />
+
+              </div>
+
+            </div>
+
+            <div className="aw-register-items">
+
+              {parceirosFiltrados.length ===
+              0 ? (
+                <div className="aw-empty">
+                  <div>
+                    <Building2 size={25} />
+                    Nenhum parceiro encontrado.
+                  </div>
+                </div>
+              ) : (
+                parceirosFiltrados.map(
+                  (parceiro) => (
+                    <button
+                      key={parceiro.id}
+                      className={
+                        parceiroSelecionado?.id ===
+                        parceiro.id
+                          ? "aw-register-item active"
+                          : "aw-register-item"
+                      }
+                      onClick={() =>
+                        setParceiroSelecionado(
+                          parceiro
+                        )
+                      }
+                    >
+
+                      <div className="aw-register-avatar">
+                        <Building2 size={17} />
+                      </div>
+
+                      <div className="aw-register-item-info">
+
+                        <div className="aw-register-item-name">
+                          {parceiro.nomeEmpresa ||
+                            "Empresa"}
+                        </div>
+
+                        <div className="aw-register-item-sub">
+                          {parceiro.nomeResponsavel ||
+                            parceiro.cidadeRegiao ||
+                            "Solicitação"}
+                        </div>
+
+                      </div>
+
+                    </button>
+                  )
+                )
+              )}
+
+            </div>
+
+          </aside>
+
+          <section className="aw-details">
+
+            {!parceiroSelecionado ? (
+              <div className="aw-empty">
+                <div>
+                  <Building2 size={35} />
+                  Selecione um parceiro.
+                </div>
+              </div>
+            ) : (
+              <>
+
+                <div className="aw-details-header">
+
+                  <div className="aw-details-person">
+
+                    <div className="aw-details-avatar">
+                      <Building2 size={23} />
+                    </div>
+
+                    <div>
+
+                      <strong>
+                        {parceiroSelecionado.nomeEmpresa ||
+                          "Empresa"}
+                      </strong>
+
+                      <span>
+                        {parceiroSelecionado.nomeResponsavel ||
+                          "Responsável não informado"}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                  <span
+                    className={`aw-status ${statusClasse(
+                      parceiroSelecionado.status
+                    )}`}
+                  >
+                    {parceiroSelecionado.status ||
+                      "PENDENTE"}
+                  </span>
+
+                </div>
+
+                <div className="aw-detail-grid">
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <Building2 size={11} />
+                      Nome da empresa
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.nomeEmpresa ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <UserPlus size={11} />
+                      Nome do responsável
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.nomeResponsavel ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <MapPin size={11} />
+                      Cidade / Região
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.cidadeRegiao ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Volume diário
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.volumeDiario ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      <Phone size={11} />
+                      Telefone para contato
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.telefoneContato ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      WhatsApp
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {formatarNumero(
+                        parceiroSelecionado.numeroWhatsApp
+                      ) || "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Origem
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {parceiroSelecionado.origem ||
+                        "WHATSAPP"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Solicitação criada
+                    </div>
+
+                    <div className="aw-detail-value">
+                      {formatarData(
+                        parceiroSelecionado.criadoEm
+                      ) || "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Status
+                    </div>
+
+                    <div>
+                      <span
+                        className={`aw-status ${statusClasse(
+                          parceiroSelecionado.status
+                        )}`}
+                      >
+                        {parceiroSelecionado.status ||
+                          "PENDENTE"}
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+
+              </>
+            )}
+
+          </section>
 
         </div>
+      )}
 
+      {/* ========================================================
+          MODAL — EDITAR COLABORADOR
+      ======================================================== */}
+
+      {editandoColaborador && (
+        <div
+          className="aw-modal-overlay"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              setEditandoColaborador(null);
+            }
+          }}
+        >
+
+          <div className="aw-modal">
+
+            <div className="aw-modal-header">
+
+              <strong>
+                Editar cadastro do colaborador
+              </strong>
+
+              <button
+                className="aw-close"
+                onClick={() =>
+                  setEditandoColaborador(null)
+                }
+              >
+                <X size={15} />
+              </button>
+
+            </div>
+
+            <div className="aw-modal-body">
+
+              <div className="aw-form-grid">
+
+                <div className="aw-field full">
+                  <label>
+                    Nome completo
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.nomeCompleto ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "nomeCompleto",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    CEP
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.cep ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "cep",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Número
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.numero ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "numero",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field full">
+                  <label>
+                    Rua
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.rua ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "rua",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Região
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.regiaoNome ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "regiaoNome",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Telefone
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.telefone ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "telefone",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    CPF
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.cpf ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "cpf",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Chave Pix
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.pix ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "pix",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Banco
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.banco ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "banco",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="aw-field">
+                  <label>
+                    Nome do favorecido
+                  </label>
+
+                  <input
+                    value={
+                      editandoColaborador.favorecido ||
+                      ""
+                    }
+                    onChange={(event) =>
+                      alterarCampoColaborador(
+                        "favorecido",
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="aw-modal-footer">
+
+              <div className="aw-success-message">
+                {mensagemColaborador}
+              </div>
+
+              <button
+                className="aw-save"
+                disabled={
+                  salvandoColaborador
+                }
+                onClick={
+                  salvarColaborador
+                }
+              >
+                <Save size={14} />
+
+                {salvandoColaborador
+                  ? "Salvando..."
+                  : "Salvar alterações"}
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
       )}
 
     </div>

@@ -46,10 +46,10 @@ export default function App() {
           <Route path="/mapa" element={<Mapa />} />
           <Route path="/rastreamento" element={<Rastreamento />} />
           <Route path="/financeiro" element={<Financeiro />} />
+          <Route path="/whatsapp" element={<WhatsApp />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-        <Route path="/whatsapp" element={<WhatsApp />} />
       </Routes>
     </AuthProvider>
   );

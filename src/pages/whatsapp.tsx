@@ -76,7 +76,9 @@ function formatarNumero(numero: string) {
   }
 
   if (n.length === 11) {
-    return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
+    return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(
+      7
+    )}`;
   }
 
   return numero;
@@ -206,8 +208,7 @@ export default function WhatsApp() {
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             numero: selecionada.numero,
@@ -253,19 +254,35 @@ export default function WhatsApp() {
     <div className="whatsapp-page">
 
       <style>{`
+
         /* ======================================================
-           CONTAINER
+           CONTAINER PRINCIPAL
         ====================================================== */
 
         .whatsapp-page {
           width: 100%;
-          height: 100%;
+
+          /*
+           * O AppLayout possui:
+           * - topbar: 76px
+           * - content padding: 28px em cima + 28px embaixo
+           *
+           * 76 + 28 + 28 = 132px
+           */
+          height: calc(100vh - 132px);
+
           min-height: 0;
+
           display: flex;
+
           overflow: hidden;
+
           background: #f5f6f8;
+
           border: 1px solid #eaecf0;
           border-radius: 16px;
+
+          box-sizing: border-box;
         }
 
         /* ======================================================
@@ -275,47 +292,65 @@ export default function WhatsApp() {
         .whatsapp-sidebar {
           width: 350px;
           min-width: 350px;
+
           height: 100%;
           min-height: 0;
+
           display: flex;
           flex-direction: column;
+
+          overflow: hidden;
+
           background: #ffffff;
+
           border-right: 1px solid #eaecf0;
         }
 
         .whatsapp-sidebar-header {
+          flex-shrink: 0;
+
           padding: 20px;
+
           border-bottom: 1px solid #eaecf0;
         }
 
         .whatsapp-title {
           display: flex;
           align-items: center;
+
           gap: 12px;
         }
 
         .whatsapp-title-icon {
           width: 42px;
           height: 42px;
+
           display: flex;
           align-items: center;
           justify-content: center;
+
           flex-shrink: 0;
+
           border-radius: 12px;
+
           background: #111827;
           color: #ffffff;
         }
 
         .whatsapp-title h1 {
           margin: 0;
+
           color: #101828;
+
           font-size: 18px;
           font-weight: 800;
         }
 
         .whatsapp-title p {
           margin: 4px 0 0;
+
           color: #98a2b3;
+
           font-size: 11px;
         }
 
@@ -325,26 +360,37 @@ export default function WhatsApp() {
 
         .whatsapp-search {
           position: relative;
+
           margin-top: 18px;
         }
 
         .whatsapp-search svg {
           position: absolute;
+
           left: 12px;
           top: 11px;
+
           color: #98a2b3;
+
+          pointer-events: none;
         }
 
         .whatsapp-search input {
           box-sizing: border-box;
+
           width: 100%;
           height: 40px;
+
           padding: 0 12px 0 38px;
+
           border: 1px solid #eaecf0;
           border-radius: 10px;
+
           outline: none;
+
           background: #f9fafb;
           color: #101828;
+
           font-family: inherit;
           font-size: 12px;
         }
@@ -360,21 +406,36 @@ export default function WhatsApp() {
 
         .whatsapp-conversations {
           flex: 1;
+
           min-height: 0;
+
           overflow-y: auto;
+          overflow-x: hidden;
+
+          overscroll-behavior: contain;
+
+          scrollbar-width: thin;
         }
 
         .whatsapp-conversation {
           box-sizing: border-box;
+
           width: 100%;
+
           padding: 14px;
+
           display: flex;
           align-items: flex-start;
+
           gap: 12px;
+
           border: 0;
           border-bottom: 1px solid #f2f4f7;
+
           background: #ffffff;
+
           text-align: left;
+
           cursor: pointer;
         }
 
@@ -384,25 +445,33 @@ export default function WhatsApp() {
 
         .whatsapp-conversation.selected {
           background: #f2f4f7;
-          box-shadow: inset 3px 0 0 #c9a227;
+
+          box-shadow:
+            inset 3px 0 0 #c9a227;
         }
 
         .whatsapp-avatar {
           width: 42px;
           height: 42px;
+
           min-width: 42px;
+
           display: flex;
           align-items: center;
           justify-content: center;
+
           border-radius: 50%;
+
           background: #111827;
           color: #ffffff;
+
           font-size: 14px;
           font-weight: 800;
         }
 
         .whatsapp-conversation-content {
           min-width: 0;
+
           flex: 1;
         }
 
@@ -410,55 +479,76 @@ export default function WhatsApp() {
           display: flex;
           align-items: center;
           justify-content: space-between;
+
           gap: 8px;
         }
 
         .whatsapp-name {
           min-width: 0;
+
           overflow: hidden;
+
           color: #101828;
+
           font-size: 12px;
           font-weight: 800;
+
           white-space: nowrap;
           text-overflow: ellipsis;
         }
 
         .whatsapp-time {
           flex-shrink: 0;
+
           color: #98a2b3;
+
           font-size: 9px;
         }
 
         .whatsapp-number {
           margin-top: 3px;
+
           color: #98a2b3;
+
           font-size: 9px;
         }
 
         .whatsapp-last-message {
           margin-top: 6px;
+
           overflow: hidden;
+
           color: #667085;
+
           font-size: 11px;
+
           white-space: nowrap;
           text-overflow: ellipsis;
         }
 
         .whatsapp-human {
           display: inline-block;
+
           margin-top: 7px;
+
           padding: 3px 6px;
+
           border-radius: 5px;
+
           background: #fff7ed;
           color: #c2410c;
+
           font-size: 8px;
           font-weight: 800;
         }
 
         .whatsapp-empty-list {
           padding: 50px 25px;
+
           text-align: center;
+
           color: #98a2b3;
+
           font-size: 12px;
         }
 
@@ -469,30 +559,47 @@ export default function WhatsApp() {
         .whatsapp-chat {
           min-width: 0;
           min-height: 0;
+
           flex: 1;
+
           height: 100%;
+
           display: flex;
           flex-direction: column;
+
           overflow: hidden;
         }
 
+        /* ======================================================
+           CABEÇALHO DO CHAT
+        ====================================================== */
+
         .whatsapp-chat-header {
           min-height: 72px;
+
           box-sizing: border-box;
+
           padding: 14px 20px;
+
           display: flex;
           align-items: center;
           justify-content: space-between;
+
           gap: 15px;
+
           flex-shrink: 0;
+
           background: #ffffff;
+
           border-bottom: 1px solid #eaecf0;
         }
 
         .whatsapp-chat-user {
           min-width: 0;
+
           display: flex;
           align-items: center;
+
           gap: 12px;
         }
 
@@ -502,18 +609,25 @@ export default function WhatsApp() {
 
         .whatsapp-chat-user-info strong {
           display: block;
+
           overflow: hidden;
+
           color: #101828;
+
           font-size: 14px;
           font-weight: 800;
+
           white-space: nowrap;
           text-overflow: ellipsis;
         }
 
         .whatsapp-chat-user-info span {
           display: block;
+
           margin-top: 3px;
+
           color: #98a2b3;
+
           font-size: 10px;
         }
 
@@ -524,12 +638,18 @@ export default function WhatsApp() {
         .whatsapp-status {
           display: flex;
           align-items: center;
+
           gap: 6px;
+
           flex-shrink: 0;
+
           padding: 6px 9px;
+
           border-radius: 20px;
+
           background: #ecfdf3;
           color: #15803d;
+
           font-size: 9px;
           font-weight: 800;
         }
@@ -537,7 +657,9 @@ export default function WhatsApp() {
         .whatsapp-status-dot {
           width: 6px;
           height: 6px;
+
           border-radius: 50%;
+
           background: #22c55e;
         }
 
@@ -547,23 +669,37 @@ export default function WhatsApp() {
 
         .whatsapp-messages {
           flex: 1;
+
           min-height: 0;
+
           overflow-y: auto;
+          overflow-x: hidden;
+
           padding: 24px;
+
           background: #f5f6f8;
+
+          overscroll-behavior: contain;
+
+          scrollbar-width: thin;
         }
 
         .whatsapp-messages-inner {
           width: 100%;
+
           max-width: 900px;
+
           margin: 0 auto;
+
           display: flex;
           flex-direction: column;
+
           gap: 10px;
         }
 
         .whatsapp-message-row {
           width: 100%;
+
           display: flex;
         }
 
@@ -577,34 +713,51 @@ export default function WhatsApp() {
 
         .whatsapp-message {
           max-width: 70%;
+
           padding: 10px 13px;
+
           border-radius: 14px;
-          box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+
+          box-shadow:
+            0 1px 3px
+            rgba(16, 24, 40, .06);
+
+          overflow-wrap: anywhere;
         }
 
         .whatsapp-message.client {
           border-top-left-radius: 4px;
+
           background: #ffffff;
+
           color: #344054;
         }
 
         .whatsapp-message.assistant {
           border-top-right-radius: 4px;
+
           background: #111827;
+
           color: #ffffff;
         }
 
         .whatsapp-message-text {
           white-space: pre-wrap;
+
           word-break: break-word;
+
           font-size: 12px;
+
           line-height: 1.6;
         }
 
         .whatsapp-message-time {
           margin-top: 4px;
+
           color: #98a2b3;
+
           font-size: 8px;
+
           text-align: right;
         }
 
@@ -614,54 +767,78 @@ export default function WhatsApp() {
 
         .whatsapp-compose {
           box-sizing: border-box;
+
           padding: 12px 18px;
+
           flex-shrink: 0;
+
           background: #ffffff;
+
           border-top: 1px solid #eaecf0;
         }
 
         .whatsapp-compose-inner {
           width: 100%;
+
           max-width: 900px;
+
           margin: 0 auto;
+
           display: flex;
           align-items: flex-end;
+
           gap: 10px;
         }
 
         .whatsapp-compose textarea {
           box-sizing: border-box;
+
           flex: 1;
+
           min-width: 0;
+
           min-height: 45px;
           max-height: 120px;
-          resize: none;
+
+          resize: vertical;
+
           padding: 12px 14px;
+
           border: 1px solid #eaecf0;
           border-radius: 12px;
+
           outline: none;
+
           background: #f9fafb;
           color: #101828;
+
           font-family: inherit;
           font-size: 12px;
         }
 
         .whatsapp-compose textarea:focus {
           border-color: #c9a227;
+
           background: #ffffff;
         }
 
         .whatsapp-send {
           width: 45px;
           height: 45px;
+
           min-width: 45px;
+
           display: flex;
           align-items: center;
           justify-content: center;
+
           border: 0;
+
           border-radius: 12px;
+
           background: #111827;
           color: #ffffff;
+
           cursor: pointer;
         }
 
@@ -671,6 +848,7 @@ export default function WhatsApp() {
 
         .whatsapp-send:disabled {
           opacity: .4;
+
           cursor: not-allowed;
         }
 
@@ -680,10 +858,15 @@ export default function WhatsApp() {
 
         .whatsapp-error {
           padding: 9px 18px;
+
           flex-shrink: 0;
+
           background: #fef2f2;
+
           border-top: 1px solid #fecaca;
+
           color: #b91c1c;
+
           font-size: 11px;
         }
 
@@ -693,25 +876,36 @@ export default function WhatsApp() {
 
         .whatsapp-no-chat {
           flex: 1;
+
           min-height: 0;
+
           display: flex;
           align-items: center;
           justify-content: center;
+
           text-align: center;
+
           color: #98a2b3;
+
           font-size: 12px;
         }
 
         .whatsapp-no-chat svg {
           display: block;
+
           margin: 0 auto 10px;
         }
 
         /* ======================================================
-           RESPONSIVO
+           TABLET
         ====================================================== */
 
         @media (max-width: 900px) {
+
+          .whatsapp-page {
+            height: calc(100vh - 110px);
+            min-height: 450px;
+          }
 
           .whatsapp-sidebar {
             width: 300px;
@@ -727,9 +921,17 @@ export default function WhatsApp() {
           }
         }
 
+        /* ======================================================
+           CELULAR
+        ====================================================== */
+
         @media (max-width: 650px) {
 
           .whatsapp-page {
+            height: calc(100vh - 110px);
+
+            min-height: 0;
+
             border-radius: 10px;
           }
 
@@ -758,6 +960,7 @@ export default function WhatsApp() {
 
           .whatsapp-conversation {
             justify-content: center;
+
             padding: 12px 5px;
           }
 
@@ -766,7 +969,9 @@ export default function WhatsApp() {
           }
 
           .whatsapp-chat-header {
-            padding: 12px;
+            min-height: 64px;
+
+            padding: 10px 12px;
           }
 
           .whatsapp-messages {
@@ -780,7 +985,18 @@ export default function WhatsApp() {
           .whatsapp-compose {
             padding: 10px;
           }
+
+          .whatsapp-compose textarea {
+            min-height: 42px;
+          }
+
+          .whatsapp-send {
+            width: 42px;
+            height: 42px;
+            min-width: 42px;
+          }
         }
+
       `}</style>
 
       {/* ========================================================
@@ -799,7 +1015,10 @@ export default function WhatsApp() {
 
             <div>
               <h1>WhatsApp</h1>
-              <p>Atendimento Águia Express</p>
+
+              <p>
+                Atendimento Águia Express
+              </p>
             </div>
 
           </div>
@@ -853,9 +1072,11 @@ export default function WhatsApp() {
                 >
 
                   <div className="whatsapp-avatar">
+
                     {(conversa.nome || "C")
                       .charAt(0)
                       .toUpperCase()}
+
                   </div>
 
                   <div className="whatsapp-conversation-content">
@@ -936,9 +1157,11 @@ export default function WhatsApp() {
               <div className="whatsapp-chat-user">
 
                 <div className="whatsapp-avatar">
+
                   {(selecionada.nome || "C")
                     .charAt(0)
                     .toUpperCase()}
+
                 </div>
 
                 <div className="whatsapp-chat-user-info">
@@ -1042,6 +1265,7 @@ export default function WhatsApp() {
                       !event.shiftKey
                     ) {
                       event.preventDefault();
+
                       enviarMensagem();
                     }
 

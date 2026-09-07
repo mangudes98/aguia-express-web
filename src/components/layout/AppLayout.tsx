@@ -12,6 +12,7 @@ import {
   Map,
   MapPin,
   Menu,
+  MessageCircle,
   Package,
   Settings,
   Truck,
@@ -52,6 +53,7 @@ const links: LinkItem[] = [
   ["Rastreamento", "/rastreamento", MapPin],
   ["Mapa", "/mapa", Map],
   ["Financeiro", "/financeiro", CircleDollarSign],
+  ["WhatsApp", "/whatsapp", MessageCircle],
   ["Configurações", "/configuracoes", Settings],
 ];
 
@@ -158,10 +160,15 @@ export default function AppLayout() {
 
               // ADMIN E OPERADOR
               case "Mapa":
-  return tipo === "admin" || permissoes.finalizados === true;
+                return tipo === "admin" || permissoes.finalizados === true;
               // PERMISSÃO financeiro
               case "Financeiro":
                 return permissoes.financeiro === true;
+
+
+                
+              case "WhatsApp":
+                return tipo === "admin" || permissoes.finalizados === true;
 
               // SOMENTE ADMIN
               case "Configurações":

@@ -14,6 +14,7 @@ import Configuracoes from "./pages/Configuracoes";
 import PacoteDetalhe from "./pages/PacoteDetalhe";
 import Coleta from "./pages/Coleta";
 import Rastreamento from "./pages/Rastreamento";
+import WhatsApp from "./pages/whatsapp";
 
 function LoginRedirect() {
   const { user, loading } = useAuth();
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/configuracoes" element={<Configuracoes />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/whatsapp" element={<WhatsApp />} />
       </Routes>
     </AuthProvider>
   );

@@ -1,5 +1,5 @@
 // ============================================================
-// PÁGINA: WhatsApp — Painel de Atendimento Águia Express
+// PÁGINA: WhatsApp + Cadastro Pendente
 // ARQUIVO: src/pages/whatsapp.tsx
 // ============================================================
 
@@ -11,6 +11,8 @@ import {
   orderBy,
   query,
   Timestamp,
+  updateDoc,
+  doc,
 } from "firebase/firestore";
 
 import {
@@ -18,15 +20,13 @@ import {
   Send,
   Search,
   UserPlus,
-  X,
-  Camera,
-  Phone,
-  FileText,
   MapPin,
-  CreditCard,
-  Building2,
+  Save,
   CheckCircle2,
   Clock,
+  Phone,
+  X,
+  Image as ImageIcon,
 } from "lucide-react";
 
 import { db } from "../services/firebase/firebase";
@@ -39,8 +39,8 @@ type Mensagem = {
   papel: "cliente" | "assistente";
   texto?: string;
   tipo?: string;
+  em?: Timestamp | Date | string;
 
-  // Suporte para fotos/mídias
   url?: string;
   mediaUrl?: string;
   imagemUrl?: string;
@@ -49,8 +49,6 @@ type Mensagem = {
   media?: string;
   imagem?: string;
   foto?: string;
-
-  em?: Timestamp | Date | string;
 };
 
 type Conversa = {
@@ -71,40 +69,45 @@ type CadastroEntregador = {
   numeroWhatsApp?: string;
 
   nomeCompleto?: string;
-
   cep?: string;
   rua?: string;
   numero?: string;
   telefone?: string;
   telefoneContato?: string;
-
   cpf?: string;
   pix?: string;
   banco?: string;
   favorecido?: string;
 
+  // NOVO
+  regiaoEscolhida?: string;
+
   criadoEm?: Timestamp | Date | string;
   atualizadoEm?: Timestamp | Date | string;
-
-  // Suporte a possíveis campos de foto
-  foto?: string;
-  fotoUrl?: string;
-  imagem?: string;
-  imagemUrl?: string;
-  fotoPerfil?: string;
-  fotoDocumento?: string;
-  documentoFoto?: string;
 
   [key: string]: unknown;
 };
 
 // ============================================================
+// REGIÕES
+// EDITE ESTA LISTA QUANDO QUISER
+// ============================================================
+
+const REGIOES = [
+  "Barueri",
+  "Jandira",
+  "Itapevi",
+  "Osasco",
+  "Carapicuíba",
+  "Santana de Parnaíba",
+  "Alphaville",
+];
+
+// ============================================================
 // DATA
 // ============================================================
 
-function formatarData(
-  valor?: Timestamp | Date | string | unknown
-) {
+function formatarData(valor?: unknown) {
   if (!valor) return "";
 
   try {
@@ -118,13 +121,9 @@ function formatarData(
       typeof valor === "object" &&
       valor !== null &&
       "toDate" in valor &&
-      typeof (valor as { toDate?: unknown }).toDate === "function"
+      typeof (valor as any).toDate === "function"
     ) {
-      data = (
-        valor as {
-          toDate: () => Date;
-        }
-      ).toDate();
+      data = (valor as any).toDate();
     } else {
       data = new Date(String(valor));
     }
@@ -169,23 +168,7 @@ function formatarNumero(numero: string) {
 }
 
 // ============================================================
-// TEXTO
-// ============================================================
-
-function textoSeguro(valor: unknown) {
-  if (
-    valor === undefined ||
-    valor === null ||
-    typeof valor === "object"
-  ) {
-    return "";
-  }
-
-  return String(valor).trim();
-}
-
-// ============================================================
-// DETECTAR URL DE FOTO
+// FOTOS
 // ============================================================
 
 function obterFotosMensagem(
@@ -193,7 +176,7 @@ function obterFotosMensagem(
 ): string[] {
   const fotos: string[] = [];
 
-  const possiveis = [
+  const campos = [
     mensagem.url,
     mensagem.mediaUrl,
     mensagem.imagemUrl,
@@ -204,83 +187,35 @@ function obterFotosMensagem(
     mensagem.foto,
   ];
 
-  for (const valor of possiveis) {
-    if (typeof valor === "string") {
-      const url = valor.trim();
-
-      if (
-        url &&
-        (/^https?:\/\//i.test(url) ||
-          url.startsWith("data:image/"))
-      ) {
-        fotos.push(url);
-      }
+  campos.forEach((valor) => {
+    if (
+      typeof valor === "string" &&
+      /^https?:\/\//i.test(valor)
+    ) {
+      fotos.push(valor);
     }
-  }
-
-  // Caso a URL esteja diretamente no texto
-  const texto = String(mensagem.texto || "");
-
-  const urls = texto.match(
-    /https?:\/\/[^\s<>"']+/gi
-  );
-
-  if (urls) {
-    for (const url of urls) {
-      if (
-        /\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(
-          url
-        )
-      ) {
-        fotos.push(url);
-      }
-    }
-  }
+  });
 
   return [...new Set(fotos)];
 }
 
 // ============================================================
-// FOTOS DO CADASTRO
-// ============================================================
-
-function obterFotosCadastro(
-  cadastro: CadastroEntregador
-): string[] {
-  const fotos: string[] = [];
-
-  const possiveis = [
-    cadastro.foto,
-    cadastro.fotoUrl,
-    cadastro.imagem,
-    cadastro.imagemUrl,
-    cadastro.fotoPerfil,
-    cadastro.fotoDocumento,
-    cadastro.documentoFoto,
-  ];
-
-  for (const valor of possiveis) {
-    if (typeof valor === "string") {
-      const url = valor.trim();
-
-      if (
-        url &&
-        (/^https?:\/\//i.test(url) ||
-          url.startsWith("data:image/"))
-      ) {
-        fotos.push(url);
-      }
-    }
-  }
-
-  return [...new Set(fotos)];
-}
-
-// ============================================================
-// COMPONENTE PRINCIPAL
+// COMPONENTE
 // ============================================================
 
 export default function WhatsApp() {
+  // ----------------------------------------------------------
+  // ABA
+  // ----------------------------------------------------------
+
+  const [aba, setAba] = useState<
+    "whatsapp" | "cadastro"
+  >("whatsapp");
+
+  // ----------------------------------------------------------
+  // WHATSAPP
+  // ----------------------------------------------------------
+
   const [conversas, setConversas] = useState<
     Conversa[]
   >([]);
@@ -288,10 +223,17 @@ export default function WhatsApp() {
   const [selecionada, setSelecionada] =
     useState<Conversa | null>(null);
 
-  const [
-    cadastros,
-    setCadastros,
-  ] = useState<CadastroEntregador[]>([]);
+  const [busca, setBusca] = useState("");
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] =
+    useState(false);
+
+  // ----------------------------------------------------------
+  // CADASTROS
+  // ----------------------------------------------------------
+
+  const [cadastros, setCadastros] =
+    useState<CadastroEntregador[]>([]);
 
   const [
     cadastroSelecionado,
@@ -299,25 +241,23 @@ export default function WhatsApp() {
   ] =
     useState<CadastroEntregador | null>(null);
 
-  const [busca, setBusca] = useState("");
-  const [
-    buscaCadastro,
-    setBuscaCadastro,
-  ] = useState("");
+  const [buscaCadastro, setBuscaCadastro] =
+    useState("");
 
-  const [texto, setTexto] = useState("");
-  const [enviando, setEnviando] =
+  const [editando, setEditando] =
+    useState<CadastroEntregador | null>(null);
+
+  const [salvando, setSalvando] =
     useState(false);
 
-  const [erro, setErro] = useState("");
+  const [mensagem, setMensagem] =
+    useState("");
 
-  const [
-    fotoAberta,
-    setFotoAberta,
-  ] = useState<string | null>(null);
+  const [fotoAberta, setFotoAberta] =
+    useState<string | null>(null);
 
   // ============================================================
-  // CARREGAR CONVERSAS
+  // CARREGAR WHATSAPP
   // ============================================================
 
   useEffect(() => {
@@ -331,19 +271,17 @@ export default function WhatsApp() {
       orderBy("atualizadoEm", "desc")
     );
 
-    const cancelar = onSnapshot(
+    return onSnapshot(
       consulta,
       (snapshot) => {
         const lista: Conversa[] =
-          snapshot.docs.map(
-            (documento) => ({
-              id: documento.id,
-              ...(documento.data() as Omit<
-                Conversa,
-                "id"
-              >),
-            })
-          );
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<
+              Conversa,
+              "id"
+            >),
+          }));
 
         setConversas(lista);
 
@@ -364,21 +302,15 @@ export default function WhatsApp() {
       },
       (error) => {
         console.error(
-          "Erro ao carregar conversas:",
+          "Erro WhatsApp:",
           error
-        );
-
-        setErro(
-          "Não foi possível carregar as conversas."
         );
       }
     );
-
-    return () => cancelar();
   }, []);
 
   // ============================================================
-  // CARREGAR CADASTROS DOS ENTREGADORES
+  // CARREGAR CADASTROS
   // ============================================================
 
   useEffect(() => {
@@ -392,34 +324,46 @@ export default function WhatsApp() {
       orderBy("atualizadoEm", "desc")
     );
 
-    const cancelar = onSnapshot(
+    return onSnapshot(
       consulta,
       (snapshot) => {
         const lista: CadastroEntregador[] =
-          snapshot.docs.map(
-            (documento) => ({
-              id: documento.id,
-              ...(documento.data() as Omit<
-                CadastroEntregador,
-                "id"
-              >),
-            })
-          );
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<
+              CadastroEntregador,
+              "id"
+            >),
+          }));
 
-        setCadastros(lista);
+        // Mostra somente cadastros ainda pendentes
+        const pendentes = lista.filter(
+          (item) => {
+            const status = String(
+              item.status || ""
+            ).toUpperCase();
+
+            return (
+              status === "PENDENTE" ||
+              status === "EM_ANDAMENTO"
+            );
+          }
+        );
+
+        setCadastros(pendentes);
 
         setCadastroSelecionado(
           (atual) => {
             if (!atual) {
-              return lista[0] || null;
+              return pendentes[0] || null;
             }
 
             return (
-              lista.find(
+              pendentes.find(
                 (item) =>
                   item.id === atual.id
               ) ||
-              lista[0] ||
+              pendentes[0] ||
               null
             );
           }
@@ -427,26 +371,22 @@ export default function WhatsApp() {
       },
       (error) => {
         console.error(
-          "Erro ao carregar cadastros:",
+          "Erro cadastros:",
           error
         );
       }
     );
-
-    return () => cancelar();
   }, []);
 
   // ============================================================
-  // FILTRO DAS CONVERSAS
+  // FILTRO WHATSAPP
   // ============================================================
 
   const conversasFiltradas = useMemo(() => {
     const termo =
       busca.trim().toLowerCase();
 
-    if (!termo) {
-      return conversas;
-    }
+    if (!termo) return conversas;
 
     return conversas.filter(
       (conversa) => {
@@ -458,7 +398,7 @@ export default function WhatsApp() {
           conversa.numero || ""
         ).toLowerCase();
 
-        const ultimaMensagem =
+        const ultima =
           conversa.mensagens?.[
             conversa.mensagens.length - 1
           ]?.texto?.toLowerCase() || "";
@@ -466,47 +406,162 @@ export default function WhatsApp() {
         return (
           nome.includes(termo) ||
           numero.includes(termo) ||
-          ultimaMensagem.includes(termo)
+          ultima.includes(termo)
         );
       }
     );
   }, [conversas, busca]);
 
   // ============================================================
-  // FILTRO DOS CADASTROS
+  // FILTRO CADASTROS
   // ============================================================
 
-  const cadastrosFiltrados = useMemo(() => {
-    const termo =
-      buscaCadastro.trim().toLowerCase();
+  const cadastrosFiltrados =
+    useMemo(() => {
+      const termo =
+        buscaCadastro
+          .trim()
+          .toLowerCase();
 
-    if (!termo) {
-      return cadastros;
-    }
+      if (!termo) return cadastros;
 
-    return cadastros.filter(
-      (cadastro) => {
-        return [
-          cadastro.nomeCompleto,
-          cadastro.numeroWhatsApp,
-          cadastro.telefone,
-          cadastro.telefoneContato,
-          cadastro.cpf,
-          cadastro.status,
-          cadastro.cidade,
-        ]
-          .map((valor) =>
-            String(valor || "").toLowerCase()
+      return cadastros.filter(
+        (cadastro) =>
+          String(
+            cadastro.nomeCompleto || ""
           )
-          .some((valor) =>
-            valor.includes(termo)
-          );
-      }
-    );
-  }, [cadastros, buscaCadastro]);
+            .toLowerCase()
+            .includes(termo) ||
+          String(
+            cadastro.numeroWhatsApp || ""
+          )
+            .toLowerCase()
+            .includes(termo) ||
+          String(
+            cadastro.cpf || ""
+          )
+            .toLowerCase()
+            .includes(termo)
+      );
+    }, [cadastros, buscaCadastro]);
 
   // ============================================================
-  // ENVIAR MENSAGEM
+  // EDITAR CADASTRO
+  // ============================================================
+
+  function iniciarEdicao(
+    cadastro: CadastroEntregador
+  ) {
+    setEditando({
+      ...cadastro,
+    });
+  }
+
+  // ============================================================
+  // ALTERAR CAMPO
+  // ============================================================
+
+  function alterarCampo(
+    campo: string,
+    valor: string
+  ) {
+    setEditando((atual) => {
+      if (!atual) return null;
+
+      return {
+        ...atual,
+        [campo]: valor,
+      };
+    });
+  }
+
+  // ============================================================
+  // SALVAR CADASTRO
+  // ============================================================
+
+  async function salvarCadastro() {
+    if (!editando) return;
+
+    setSalvando(true);
+    setMensagem("");
+
+    try {
+      const referencia = doc(
+        db,
+        "candidatos_entregadores",
+        editando.id
+      );
+
+      await updateDoc(
+        referencia,
+        {
+          nomeCompleto:
+            editando.nomeCompleto || "",
+
+          cep: editando.cep || "",
+          rua: editando.rua || "",
+          numero: editando.numero || "",
+
+          telefone:
+            editando.telefone || "",
+
+          telefoneContato:
+            editando.telefoneContato ||
+            "",
+
+          cpf: editando.cpf || "",
+          pix: editando.pix || "",
+          banco: editando.banco || "",
+
+          favorecido:
+            editando.favorecido || "",
+
+          // NOVO CAMPO
+          regiaoEscolhida:
+            editando.regiaoEscolhida ||
+            "",
+
+          atualizadoEm:
+            Timestamp.now(),
+        }
+      );
+
+      const atualizado = {
+        ...editando,
+        atualizadoEm:
+          Timestamp.now(),
+      };
+
+      setCadastroSelecionado(
+        atualizado
+      );
+
+      setEditando(null);
+
+      setMensagem(
+        "Cadastro atualizado com sucesso."
+      );
+
+      setTimeout(
+        () => setMensagem(""),
+        3000
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao salvar cadastro:",
+        error
+      );
+
+      setMensagem(
+        "Não foi possível salvar o cadastro."
+      );
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // ============================================================
+  // ENVIAR WHATSAPP
   // ============================================================
 
   async function enviarMensagem() {
@@ -519,20 +574,22 @@ export default function WhatsApp() {
     }
 
     setEnviando(true);
-    setErro("");
 
     try {
       const resposta = await fetch(
         "/api/whatsapp/send",
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
             numero:
               selecionada.numero,
+
             mensagem:
               texto.trim(),
           }),
@@ -547,21 +604,15 @@ export default function WhatsApp() {
       if (!resposta.ok) {
         throw new Error(
           dados?.error ||
-            "Não foi possível enviar a mensagem."
+            "Erro ao enviar mensagem."
         );
       }
 
       setTexto("");
     } catch (error) {
       console.error(
-        "Erro ao enviar mensagem:",
+        "Erro envio:",
         error
-      );
-
-      setErro(
-        error instanceof Error
-          ? error.message
-          : "Erro ao enviar mensagem."
       );
     } finally {
       setEnviando(false);
@@ -573,7 +624,7 @@ export default function WhatsApp() {
   // ============================================================
 
   return (
-    <div className="whatsapp-wrapper">
+    <div className="whatsapp-page-wrapper">
 
       <style>{`
 
@@ -581,14 +632,9 @@ export default function WhatsApp() {
           box-sizing: border-box;
         }
 
-        /* ======================================================
-           WRAPPER
-        ====================================================== */
-
-        .whatsapp-wrapper {
+        .whatsapp-page-wrapper {
           width: 100%;
           height: calc(100vh - 132px);
-          min-height: 0;
 
           display: flex;
           flex-direction: column;
@@ -599,196 +645,152 @@ export default function WhatsApp() {
         }
 
         /* ======================================================
-           CADASTROS
+           ABAS
         ====================================================== */
 
-        .cadastros-container {
+        .top-tabs {
           flex-shrink: 0;
 
-          width: 100%;
+          height: 48px;
+
+          display: flex;
 
           background: #ffffff;
 
           border: 1px solid #eaecf0;
-          border-radius: 16px;
 
-          overflow: hidden;
+          border-radius: 12px;
+
+          padding: 4px;
         }
 
-        .cadastros-header {
-          min-height: 70px;
+        .top-tab {
+          flex: 1;
 
-          padding: 14px 18px;
+          border: 0;
+
+          border-radius: 9px;
+
+          background: transparent;
+
+          color: #667085;
+
+          font-size: 12px;
+
+          font-weight: 800;
+
+          cursor: pointer;
+        }
+
+        .top-tab:hover {
+          background: #f9fafb;
+        }
+
+        .top-tab.active {
+          background: #111827;
+
+          color: #ffffff;
+        }
+
+        .pendente-count {
+          display: inline-flex;
+
+          min-width: 20px;
+          height: 20px;
+
+          align-items: center;
+          justify-content: center;
+
+          margin-left: 7px;
+
+          border-radius: 20px;
+
+          background: #c9a227;
+
+          color: #ffffff;
+
+          font-size: 9px;
+        }
+
+        /* ======================================================
+           ÁREA PRINCIPAL
+        ====================================================== */
+
+        .main-panel {
+          flex: 1;
+
+          min-height: 0;
 
           display: flex;
-          align-items: center;
-          justify-content: space-between;
 
-          gap: 15px;
+          overflow: hidden;
+
+          border: 1px solid #eaecf0;
+
+          border-radius: 16px;
+
+          background: #ffffff;
+        }
+
+        /* ======================================================
+           LISTA
+        ====================================================== */
+
+        .left-list {
+          width: 350px;
+          min-width: 350px;
+
+          display: flex;
+          flex-direction: column;
+
+          min-height: 0;
+
+          border-right: 1px solid #eaecf0;
+        }
+
+        .list-header {
+          padding: 18px;
+
+          flex-shrink: 0;
 
           border-bottom: 1px solid #eaecf0;
         }
 
-        .cadastros-title {
+        .list-title {
           display: flex;
-          align-items: center;
-          gap: 10px;
 
-          min-width: 0;
+          align-items: center;
+
+          gap: 10px;
         }
 
-        .cadastros-icon {
+        .list-title-icon {
           width: 40px;
           height: 40px;
 
           display: flex;
+
           align-items: center;
           justify-content: center;
-
-          flex-shrink: 0;
 
           border-radius: 11px;
 
           background: #111827;
+
           color: #ffffff;
         }
 
-        .cadastros-title strong {
+        .list-title strong {
           display: block;
 
           color: #101828;
 
           font-size: 14px;
+
           font-weight: 800;
         }
 
-        .cadastros-title span {
-          display: block;
-
-          margin-top: 3px;
-
-          color: #98a2b3;
-
-          font-size: 10px;
-        }
-
-        .cadastros-search {
-          width: 280px;
-          max-width: 100%;
-
-          position: relative;
-        }
-
-        .cadastros-search svg {
-          position: absolute;
-
-          left: 12px;
-          top: 11px;
-
-          color: #98a2b3;
-        }
-
-        .cadastros-search input {
-          width: 100%;
-          height: 38px;
-
-          padding: 0 12px 0 36px;
-
-          border: 1px solid #eaecf0;
-          border-radius: 9px;
-
-          outline: none;
-
-          background: #f9fafb;
-          color: #101828;
-
-          font-size: 11px;
-        }
-
-        .cadastros-list {
-          display: flex;
-
-          gap: 10px;
-
-          padding: 12px 14px;
-
-          overflow-x: auto;
-          overflow-y: hidden;
-
-          scrollbar-width: thin;
-        }
-
-        .cadastro-card {
-          min-width: 210px;
-
-          padding: 12px;
-
-          border: 1px solid #eaecf0;
-          border-radius: 11px;
-
-          background: #ffffff;
-
-          cursor: pointer;
-
-          text-align: left;
-        }
-
-        .cadastro-card:hover {
-          background: #f9fafb;
-        }
-
-        .cadastro-card.selected {
-          border-color: #c9a227;
-
-          box-shadow:
-            0 0 0 1px #c9a227;
-        }
-
-        .cadastro-card-top {
-          display: flex;
-          align-items: center;
-          gap: 9px;
-        }
-
-        .cadastro-avatar {
-          width: 36px;
-          height: 36px;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          flex-shrink: 0;
-
-          border-radius: 50%;
-
-          background: #111827;
-          color: #ffffff;
-
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .cadastro-card-name {
-          min-width: 0;
-          flex: 1;
-        }
-
-        .cadastro-card-name strong {
-          display: block;
-
-          overflow: hidden;
-
-          color: #101828;
-
-          font-size: 11px;
-          font-weight: 800;
-
-          white-space: nowrap;
-          text-overflow: ellipsis;
-        }
-
-        .cadastro-card-name span {
+        .list-title span {
           display: block;
 
           margin-top: 3px;
@@ -798,372 +800,63 @@ export default function WhatsApp() {
           font-size: 9px;
         }
 
-        .cadastro-status {
-          display: inline-flex;
-
-          align-items: center;
-
-          gap: 4px;
-
-          margin-top: 9px;
-
-          padding: 4px 7px;
-
-          border-radius: 20px;
-
-          background: #ecfdf3;
-          color: #15803d;
-
-          font-size: 8px;
-          font-weight: 800;
-        }
-
-        .cadastro-status.andamento {
-          background: #fff7ed;
-          color: #c2410c;
-        }
-
-        .cadastro-status-dot {
-          width: 5px;
-          height: 5px;
-
-          border-radius: 50%;
-
-          background: currentColor;
-        }
-
-        .cadastros-empty {
-          padding: 22px;
-
-          color: #98a2b3;
-
-          font-size: 11px;
-
-          text-align: center;
-        }
-
-        /* ======================================================
-           DETALHE CADASTRO
-        ====================================================== */
-
-        .cadastro-detalhe {
-          position: fixed;
-
-          z-index: 1000;
-
-          inset: 0;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          padding: 25px;
-
-          background: rgba(15, 23, 42, .55);
-        }
-
-        .cadastro-detalhe-card {
-          width: min(900px, 100%);
-
-          max-height: 90vh;
-
-          overflow-y: auto;
-
-          background: #ffffff;
-
-          border-radius: 16px;
-
-          box-shadow:
-            0 20px 60px rgba(0,0,0,.25);
-        }
-
-        .cadastro-detalhe-header {
-          position: sticky;
-          top: 0;
-          z-index: 2;
-
-          min-height: 68px;
-
-          padding: 14px 18px;
-
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-
-          background: #ffffff;
-
-          border-bottom: 1px solid #eaecf0;
-        }
-
-        .cadastro-detalhe-header strong {
-          color: #101828;
-          font-size: 15px;
-          font-weight: 800;
-        }
-
-        .cadastro-fechar {
-          width: 34px;
-          height: 34px;
-
-          display: grid;
-          place-items: center;
-
-          border: 1px solid #eaecf0;
-          border-radius: 9px;
-
-          background: #f9fafb;
-
-          cursor: pointer;
-        }
-
-        .cadastro-detalhe-body {
-          padding: 18px;
-        }
-
-        .cadastro-info-grid {
-          display: grid;
-
-          grid-template-columns:
-            repeat(
-              auto-fit,
-              minmax(180px, 1fr)
-            );
-
-          gap: 10px;
-        }
-
-        .cadastro-info {
-          padding: 11px;
-
-          border: 1px solid #eaecf0;
-
-          border-radius: 9px;
-
-          background: #ffffff;
-        }
-
-        .cadastro-info small {
-          display: block;
-
-          color: #98a2b3;
-
-          font-size: 8px;
-          font-weight: 800;
-          letter-spacing: .05em;
-        }
-
-        .cadastro-info strong {
-          display: block;
-
-          margin-top: 4px;
-
-          color: #101828;
-
-          font-size: 11px;
-
-          word-break: break-word;
-        }
-
-        .cadastro-secao {
-          margin-top: 18px;
-        }
-
-        .cadastro-secao-title {
-          display: flex;
-          align-items: center;
-
-          gap: 7px;
-
-          margin-bottom: 9px;
-
-          color: #344054;
-
-          font-size: 10px;
-          font-weight: 800;
-        }
-
-        .cadastro-fotos {
-          display: grid;
-
-          grid-template-columns:
-            repeat(
-              auto-fit,
-              minmax(180px, 1fr)
-            );
-
-          gap: 10px;
-        }
-
-        .cadastro-foto {
-          width: 100%;
-          height: 220px;
-
-          object-fit: contain;
-
-          background: #f8fafc;
-
-          border: 1px solid #eaecf0;
-
-          border-radius: 10px;
-
-          cursor: pointer;
-        }
-
-        /* ======================================================
-           WHATSAPP
-        ====================================================== */
-
-        .whatsapp-page {
-          width: 100%;
-          min-height: 0;
-
-          flex: 1;
-
-          display: flex;
-
-          overflow: hidden;
-
-          background: #f5f6f8;
-
-          border: 1px solid #eaecf0;
-          border-radius: 16px;
-        }
-
-        /* ======================================================
-           SIDEBAR
-        ====================================================== */
-
-        .whatsapp-sidebar {
-          width: 350px;
-          min-width: 350px;
-
-          height: 100%;
-
-          display: flex;
-          flex-direction: column;
-
-          min-height: 0;
-
-          overflow: hidden;
-
-          background: #ffffff;
-
-          border-right: 1px solid #eaecf0;
-        }
-
-        .whatsapp-sidebar-header {
-          flex-shrink: 0;
-
-          padding: 20px;
-
-          border-bottom: 1px solid #eaecf0;
-        }
-
-        .whatsapp-title {
-          display: flex;
-          align-items: center;
-
-          gap: 12px;
-        }
-
-        .whatsapp-title-icon {
-          width: 42px;
-          height: 42px;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
-
-          flex-shrink: 0;
-
-          border-radius: 12px;
-
-          background: #111827;
-          color: #ffffff;
-        }
-
-        .whatsapp-title h1 {
-          margin: 0;
-
-          color: #101828;
-
-          font-size: 18px;
-          font-weight: 800;
-        }
-
-        .whatsapp-title p {
-          margin: 4px 0 0;
-
-          color: #98a2b3;
-
-          font-size: 11px;
-        }
-
-        .whatsapp-search {
+        .search-box {
           position: relative;
 
-          margin-top: 18px;
+          margin-top: 15px;
         }
 
-        .whatsapp-search svg {
+        .search-box svg {
           position: absolute;
 
           left: 12px;
           top: 11px;
 
           color: #98a2b3;
-
-          pointer-events: none;
         }
 
-        .whatsapp-search input {
+        .search-box input {
           width: 100%;
-          height: 40px;
+          height: 38px;
 
-          padding: 0 12px 0 38px;
+          padding: 0 10px 0 36px;
 
           border: 1px solid #eaecf0;
-          border-radius: 10px;
+
+          border-radius: 9px;
 
           outline: none;
 
           background: #f9fafb;
-          color: #101828;
 
-          font-size: 12px;
+          font-size: 11px;
         }
 
-        .whatsapp-search input:focus {
-          border-color: #c9a227;
-          background: #ffffff;
-        }
-
-        /* ======================================================
-           CONVERSAS
-        ====================================================== */
-
-        .whatsapp-conversations {
+        .list-content {
           flex: 1;
 
           min-height: 0;
 
           overflow-y: auto;
-          overflow-x: hidden;
-
-          scrollbar-width: thin;
         }
 
-        .whatsapp-conversation {
+        /* ======================================================
+           ITEM
+        ====================================================== */
+
+        .list-item {
           width: 100%;
 
-          padding: 14px;
+          padding: 13px;
 
           display: flex;
-          align-items: flex-start;
 
-          gap: 12px;
+          gap: 10px;
+
+          align-items: center;
 
           border: 0;
+
           border-bottom: 1px solid #f2f4f7;
 
           background: #ffffff;
@@ -1173,408 +866,341 @@ export default function WhatsApp() {
           cursor: pointer;
         }
 
-        .whatsapp-conversation:hover {
+        .list-item:hover {
           background: #f9fafb;
         }
 
-        .whatsapp-conversation.selected {
+        .list-item.selected {
           background: #f2f4f7;
 
           box-shadow:
-            inset 3px 0 0 #c9a227;
+            inset 3px 0 #c9a227;
         }
 
-        .whatsapp-avatar {
-          width: 42px;
-          height: 42px;
+        .avatar {
+          width: 40px;
+          height: 40px;
 
-          min-width: 42px;
+          min-width: 40px;
 
           display: flex;
+
           align-items: center;
           justify-content: center;
 
           border-radius: 50%;
 
           background: #111827;
+
           color: #ffffff;
 
-          font-size: 14px;
+          font-size: 13px;
+
           font-weight: 800;
         }
 
-        .whatsapp-conversation-content {
+        .item-info {
           min-width: 0;
+
           flex: 1;
         }
 
-        .whatsapp-conversation-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-
-          gap: 8px;
-        }
-
-        .whatsapp-name {
-          min-width: 0;
-
+        .item-name {
           overflow: hidden;
 
           color: #101828;
 
-          font-size: 12px;
+          font-size: 11px;
+
           font-weight: 800;
 
           white-space: nowrap;
+
           text-overflow: ellipsis;
         }
 
-        .whatsapp-time {
-          flex-shrink: 0;
+        .item-number {
+          margin-top: 4px;
 
           color: #98a2b3;
 
           font-size: 9px;
         }
 
-        .whatsapp-number {
-          margin-top: 3px;
+        .item-status {
+          display: inline-flex;
 
-          color: #98a2b3;
+          align-items: center;
 
-          font-size: 9px;
-        }
+          gap: 4px;
 
-        .whatsapp-last-message {
           margin-top: 6px;
-
-          overflow: hidden;
-
-          color: #667085;
-
-          font-size: 11px;
-
-          white-space: nowrap;
-          text-overflow: ellipsis;
-        }
-
-        .whatsapp-human {
-          display: inline-block;
-
-          margin-top: 7px;
 
           padding: 3px 6px;
 
-          border-radius: 5px;
+          border-radius: 20px;
 
           background: #fff7ed;
+
           color: #c2410c;
 
           font-size: 8px;
+
           font-weight: 800;
         }
 
-        .whatsapp-empty-list {
-          padding: 50px 25px;
+        .empty {
+          padding: 40px 20px;
 
           text-align: center;
 
           color: #98a2b3;
 
-          font-size: 12px;
+          font-size: 11px;
         }
 
         /* ======================================================
-           CHAT
+           CHAT / DETALHE
         ====================================================== */
 
-        .whatsapp-chat {
+        .right-panel {
+          flex: 1;
+
           min-width: 0;
           min-height: 0;
 
-          flex: 1;
-
-          height: 100%;
-
           display: flex;
+
           flex-direction: column;
 
           overflow: hidden;
         }
 
-        .whatsapp-chat-header {
-          min-height: 72px;
+        .right-header {
+          min-height: 70px;
 
-          padding: 14px 20px;
+          padding: 14px 18px;
 
           display: flex;
+
           align-items: center;
+
           justify-content: space-between;
 
           gap: 15px;
 
           flex-shrink: 0;
 
-          background: #ffffff;
-
           border-bottom: 1px solid #eaecf0;
+
+          background: #ffffff;
         }
 
-        .whatsapp-chat-user {
-          min-width: 0;
-
+        .right-user {
           display: flex;
+
           align-items: center;
 
-          gap: 12px;
-        }
+          gap: 10px;
 
-        .whatsapp-chat-user-info {
           min-width: 0;
         }
 
-        .whatsapp-chat-user-info strong {
-          display: block;
+        .right-user-info {
+          min-width: 0;
+        }
 
-          overflow: hidden;
+        .right-user-info strong {
+          display: block;
 
           color: #101828;
 
           font-size: 14px;
-          font-weight: 800;
 
-          white-space: nowrap;
-          text-overflow: ellipsis;
+          font-weight: 800;
         }
 
-        .whatsapp-chat-user-info span {
+        .right-user-info span {
           display: block;
 
           margin-top: 3px;
 
           color: #98a2b3;
 
-          font-size: 10px;
+          font-size: 9px;
         }
 
-        .whatsapp-status {
-          display: flex;
+        .edit-button {
+          display: inline-flex;
+
           align-items: center;
 
           gap: 6px;
 
-          flex-shrink: 0;
+          height: 34px;
 
-          padding: 6px 9px;
+          padding: 0 12px;
 
-          border-radius: 20px;
+          border: 0;
 
-          background: #ecfdf3;
+          border-radius: 8px;
 
-          color: #15803d;
+          background: #111827;
 
-          font-size: 9px;
+          color: #ffffff;
+
+          font-size: 10px;
+
           font-weight: 800;
-        }
 
-        .whatsapp-status-dot {
-          width: 6px;
-          height: 6px;
-
-          border-radius: 50%;
-
-          background: #22c55e;
+          cursor: pointer;
         }
 
         /* ======================================================
-           MENSAGENS
+           WHATSAPP
         ====================================================== */
 
-        .whatsapp-messages {
+        .messages {
           flex: 1;
 
           min-height: 0;
 
           overflow-y: auto;
-          overflow-x: hidden;
 
-          padding: 24px;
+          padding: 20px;
 
           background: #f5f6f8;
-
-          scrollbar-width: thin;
         }
 
-        .whatsapp-messages-inner {
-          width: 100%;
-
+        .messages-inner {
           max-width: 900px;
 
-          margin: 0 auto;
+          margin: auto;
 
           display: flex;
+
           flex-direction: column;
 
-          gap: 10px;
+          gap: 9px;
         }
 
-        .whatsapp-message-row {
-          width: 100%;
-
+        .message-row {
           display: flex;
         }
 
-        .whatsapp-message-row.client {
+        .message-row.client {
           justify-content: flex-start;
         }
 
-        .whatsapp-message-row.assistant {
+        .message-row.assistant {
           justify-content: flex-end;
         }
 
-        .whatsapp-message {
+        .message {
           max-width: 70%;
 
           padding: 10px 13px;
 
-          border-radius: 14px;
+          border-radius: 13px;
 
-          box-shadow:
-            0 1px 3px
-            rgba(16, 24, 40, .06);
+          font-size: 11px;
+
+          line-height: 1.6;
 
           overflow-wrap: anywhere;
         }
 
-        .whatsapp-message.client {
-          border-top-left-radius: 4px;
-
+        .message.client {
           background: #ffffff;
 
           color: #344054;
+
+          border-top-left-radius: 4px;
         }
 
-        .whatsapp-message.assistant {
-          border-top-right-radius: 4px;
-
+        .message.assistant {
           background: #111827;
 
           color: #ffffff;
+
+          border-top-right-radius: 4px;
         }
 
-        .whatsapp-message-text {
+        .message-text {
           white-space: pre-wrap;
-
-          word-break: break-word;
-
-          font-size: 12px;
-
-          line-height: 1.6;
         }
 
-        .whatsapp-message-time {
-          margin-top: 4px;
-
-          color: #98a2b3;
-
-          font-size: 8px;
-
-          text-align: right;
-        }
-
-        .whatsapp-message-photo {
-          width: 100%;
-
-          max-width: 320px;
-          max-height: 360px;
-
-          margin-top: 8px;
-
+        .message-image {
           display: block;
 
-          object-fit: contain;
+          max-width: 320px;
+
+          max-height: 350px;
+
+          margin-top: 7px;
 
           border-radius: 9px;
 
-          cursor: pointer;
+          object-fit: contain;
 
-          background: #f8fafc;
+          cursor: pointer;
         }
 
-        /* ======================================================
-           COMPOSITOR
-        ====================================================== */
+        .message-time {
+          margin-top: 4px;
 
-        .whatsapp-compose {
-          box-sizing: border-box;
+          text-align: right;
 
-          padding: 12px 18px;
+          color: #98a2b3;
 
+          font-size: 7px;
+        }
+
+        .compose {
           flex-shrink: 0;
 
-          background: #ffffff;
-
-          border-top: 1px solid #eaecf0;
-        }
-
-        .whatsapp-compose-inner {
-          width: 100%;
-
-          max-width: 900px;
-
-          margin: 0 auto;
+          padding: 11px 15px;
 
           display: flex;
-          align-items: flex-end;
 
-          gap: 10px;
+          gap: 8px;
+
+          border-top: 1px solid #eaecf0;
+
+          background: #ffffff;
         }
 
-        .whatsapp-compose textarea {
-          width: 100%;
-
+        .compose textarea {
           flex: 1;
 
           min-width: 0;
 
-          min-height: 45px;
-          max-height: 120px;
+          min-height: 42px;
+
+          max-height: 100px;
 
           resize: none;
 
-          padding: 12px 14px;
+          padding: 11px;
 
           border: 1px solid #eaecf0;
-          border-radius: 12px;
+
+          border-radius: 10px;
 
           outline: none;
 
-          background: #f9fafb;
-          color: #101828;
-
           font-family: inherit;
-          font-size: 12px;
+
+          font-size: 11px;
         }
 
-        .whatsapp-compose textarea:focus {
-          border-color: #c9a227;
-
-          background: #ffffff;
-        }
-
-        .whatsapp-send {
-          width: 45px;
-          height: 45px;
-
-          min-width: 45px;
-
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .send-button {
+          width: 43px;
+          height: 43px;
 
           border: 0;
-          border-radius: 12px;
+
+          border-radius: 10px;
 
           background: #111827;
 
@@ -1583,72 +1209,183 @@ export default function WhatsApp() {
           cursor: pointer;
         }
 
-        .whatsapp-send:hover {
-          background: #000000;
-        }
-
-        .whatsapp-send:disabled {
-          opacity: .4;
-
-          cursor: not-allowed;
-        }
-
         /* ======================================================
-           ERRO
+           CADASTRO
         ====================================================== */
 
-        .whatsapp-error {
-          padding: 9px 18px;
-
-          flex-shrink: 0;
-
-          background: #fef2f2;
-
-          border-top: 1px solid #fecaca;
-
-          color: #b91c1c;
-
-          font-size: 11px;
-        }
-
-        /* ======================================================
-           SEM CONVERSA
-        ====================================================== */
-
-        .whatsapp-no-chat {
+        .cadastro-body {
           flex: 1;
 
           min-height: 0;
 
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          overflow-y: auto;
 
-          text-align: center;
+          padding: 22px;
 
-          color: #98a2b3;
-
-          font-size: 12px;
+          background: #f5f6f8;
         }
 
-        .whatsapp-no-chat svg {
-          display: block;
+        .cadastro-grid {
+          display: grid;
 
-          margin: 0 auto 10px;
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+
+          gap: 12px;
+
+          max-width: 1000px;
+
+          margin: auto;
+        }
+
+        .field {
+          display: flex;
+
+          flex-direction: column;
+
+          gap: 5px;
+        }
+
+        .field.full {
+          grid-column: 1 / -1;
+        }
+
+        .field label {
+          color: #667085;
+
+          font-size: 9px;
+
+          font-weight: 800;
+
+          text-transform: uppercase;
+        }
+
+        .field input,
+        .field select {
+          width: 100%;
+
+          height: 40px;
+
+          padding: 0 11px;
+
+          border: 1px solid #eaecf0;
+
+          border-radius: 9px;
+
+          outline: none;
+
+          background: #ffffff;
+
+          color: #101828;
+
+          font-family: inherit;
+
+          font-size: 11px;
+        }
+
+        .field input:focus,
+        .field select:focus {
+          border-color: #c9a227;
+        }
+
+        .save-area {
+          max-width: 1000px;
+
+          margin: 16px auto 0;
+
+          display: flex;
+
+          align-items: center;
+
+          justify-content: space-between;
+
+          gap: 10px;
+        }
+
+        .save-button {
+          height: 40px;
+
+          padding: 0 18px;
+
+          display: inline-flex;
+
+          align-items: center;
+
+          gap: 7px;
+
+          border: 0;
+
+          border-radius: 9px;
+
+          background: #111827;
+
+          color: #ffffff;
+
+          font-size: 10px;
+
+          font-weight: 800;
+
+          cursor: pointer;
+        }
+
+        .save-button:disabled {
+          opacity: .5;
+
+          cursor: not-allowed;
+        }
+
+        .success-message {
+          color: #15803d;
+
+          font-size: 10px;
+
+          font-weight: 700;
+        }
+
+        .region-card {
+          grid-column: 1 / -1;
+
+          padding: 14px;
+
+          border: 1px solid #eadca7;
+
+          border-radius: 10px;
+
+          background: #fffdf4;
+        }
+
+        .region-card-title {
+          display: flex;
+
+          align-items: center;
+
+          gap: 7px;
+
+          margin-bottom: 8px;
+
+          color: #7a5f00;
+
+          font-size: 10px;
+
+          font-weight: 800;
         }
 
         /* ======================================================
-           MODAL FOTO
+           FOTO
         ====================================================== */
 
         .foto-modal {
           position: fixed;
 
-          z-index: 3000;
+          z-index: 9999;
 
           inset: 0;
 
           display: flex;
+
           align-items: center;
           justify-content: center;
 
@@ -1661,6 +1398,7 @@ export default function WhatsApp() {
 
         .foto-modal img {
           max-width: 95vw;
+
           max-height: 90vh;
 
           object-fit: contain;
@@ -1668,7 +1406,7 @@ export default function WhatsApp() {
           border-radius: 10px;
         }
 
-        .foto-modal-close {
+        .foto-close {
           position: fixed;
 
           top: 20px;
@@ -1677,117 +1415,76 @@ export default function WhatsApp() {
           width: 40px;
           height: 40px;
 
-          display: grid;
-          place-items: center;
-
           border: 0;
+
           border-radius: 50%;
 
           background: #ffffff;
-
-          color: #111827;
 
           cursor: pointer;
         }
 
         /* ======================================================
-           RESPONSIVO
+           MOBILE
         ====================================================== */
 
-        @media (max-width: 900px) {
+        @media (max-width: 800px) {
 
-          .whatsapp-sidebar {
-            width: 300px;
-            min-width: 300px;
+          .left-list {
+            width: 290px;
+            min-width: 290px;
           }
 
-          .whatsapp-message {
-            max-width: 82%;
+          .cadastro-grid {
+            grid-template-columns: 1fr;
           }
 
-          .whatsapp-status {
-            display: none;
+          .field.full,
+          .region-card {
+            grid-column: auto;
           }
 
         }
 
-        @media (max-width: 650px) {
+        @media (max-width: 600px) {
 
-          .whatsapp-wrapper {
-            height: calc(100vh - 110px);
-          }
-
-          .cadastros-header {
-            align-items: flex-start;
-
-            flex-direction: column;
-          }
-
-          .cadastros-search {
-            width: 100%;
-          }
-
-          .whatsapp-sidebar {
+          .left-list {
             width: 85px;
             min-width: 85px;
           }
 
-          .whatsapp-sidebar-header {
-            padding: 12px;
+          .list-header {
+            padding: 10px;
           }
 
-          .whatsapp-title {
+          .list-title {
             justify-content: center;
           }
 
-          .whatsapp-title h1,
-          .whatsapp-title p,
-          .whatsapp-search,
-          .whatsapp-number,
-          .whatsapp-last-message,
-          .whatsapp-human,
-          .whatsapp-time {
+          .list-title > div:last-child,
+          .search-box,
+          .item-info {
             display: none;
           }
 
-          .whatsapp-conversation {
+          .list-item {
             justify-content: center;
-
-            padding: 12px 5px;
           }
 
-          .whatsapp-conversation-content {
-            display: none;
+          .right-header {
+            padding: 10px;
           }
 
-          .whatsapp-chat-header {
-            padding: 12px;
+          .messages {
+            padding: 10px;
           }
 
-          .whatsapp-messages {
-            padding: 12px;
-          }
-
-          .whatsapp-message {
+          .message {
             max-width: 88%;
           }
 
-          .whatsapp-compose {
-            padding: 10px;
-          }
-
-          .whatsapp-compose textarea {
-            min-height: 42px;
-          }
-
-          .whatsapp-send {
-            width: 42px;
-            height: 42px;
-            min-width: 42px;
-          }
-
-          .cadastro-detalhe {
-            padding: 10px;
+          .cadastro-body {
+            padding: 12px;
           }
 
         }
@@ -1795,499 +1492,361 @@ export default function WhatsApp() {
       `}</style>
 
       {/* ========================================================
-          CADASTROS DOS ENTREGADORES
+          ABAS
       ======================================================== */}
 
-      <section className="cadastros-container">
+      <div className="top-tabs">
 
-        <div className="cadastros-header">
+        <button
+          type="button"
+          className={`top-tab ${
+            aba === "whatsapp"
+              ? "active"
+              : ""
+          }`}
+          onClick={() =>
+            setAba("whatsapp")
+          }
+        >
+          <MessageCircle
+            size={14}
+            style={{
+              verticalAlign: "middle",
+              marginRight: 6,
+            }}
+          />
 
-          <div className="cadastros-title">
+          WHATSAPP
+        </button>
 
-            <div className="cadastros-icon">
-              <UserPlus size={20} />
-            </div>
+        <button
+          type="button"
+          className={`top-tab ${
+            aba === "cadastro"
+              ? "active"
+              : ""
+          }`}
+          onClick={() =>
+            setAba("cadastro")
+          }
+        >
+          <UserPlus
+            size={14}
+            style={{
+              verticalAlign: "middle",
+              marginRight: 6,
+            }}
+          />
 
-            <div>
-              <strong>
-                CADASTROS DE ENTREGADORES
-              </strong>
+          CADASTRO PENDENTE
 
-              <span>
-                Dados coletados pela IA no WhatsApp
-              </span>
-            </div>
-
-          </div>
-
-          <div className="cadastros-search">
-
-            <Search size={15} />
-
-            <input
-              type="text"
-              value={buscaCadastro}
-              onChange={(event) =>
-                setBuscaCadastro(
-                  event.target.value
-                )
-              }
-              placeholder="Pesquisar entregador..."
-            />
-
-          </div>
-
-        </div>
-
-        <div className="cadastros-list">
-
-          {cadastrosFiltrados.length === 0 ? (
-
-            <div className="cadastros-empty">
-              Nenhum cadastro de entregador encontrado.
-            </div>
-
-          ) : (
-
-            cadastrosFiltrados.map(
-              (cadastro) => {
-
-                const nome =
-                  cadastro.nomeCompleto ||
-                  "Cadastro em andamento";
-
-                const status =
-                  String(
-                    cadastro.status || ""
-                  ).toUpperCase();
-
-                const andamento =
-                  status === "EM_ANDAMENTO";
-
-                return (
-                  <button
-                    key={cadastro.id}
-                    type="button"
-                    className={`cadastro-card ${
-                      cadastroSelecionado?.id ===
-                      cadastro.id
-                        ? "selected"
-                        : ""
-                    }`}
-                    onClick={() =>
-                      setCadastroSelecionado(
-                        cadastro
-                      )
-                    }
-                  >
-
-                    <div className="cadastro-card-top">
-
-                      <div className="cadastro-avatar">
-                        {nome
-                          .charAt(0)
-                          .toUpperCase()}
-                      </div>
-
-                      <div className="cadastro-card-name">
-
-                        <strong>
-                          {nome}
-                        </strong>
-
-                        <span>
-                          {formatarNumero(
-                            cadastro.numeroWhatsApp ||
-                              cadastro.telefone ||
-                              ""
-                          )}
-                        </span>
-
-                      </div>
-
-                    </div>
-
-                    <div
-                      className={`cadastro-status ${
-                        andamento
-                          ? "andamento"
-                          : ""
-                      }`}
-                    >
-
-                      {andamento ? (
-                        <Clock size={9} />
-                      ) : (
-                        <CheckCircle2
-                          size={9}
-                        />
-                      )}
-
-                      {status ||
-                        "SEM STATUS"}
-
-                    </div>
-
-                  </button>
-                );
-              }
-            )
-
+          {cadastros.length > 0 && (
+            <span className="pendente-count">
+              {cadastros.length}
+            </span>
           )}
 
-        </div>
+        </button>
 
-      </section>
+      </div>
 
       {/* ========================================================
           WHATSAPP
       ======================================================== */}
 
-      <div className="whatsapp-page">
+      {aba === "whatsapp" && (
 
-        {/* ======================================================
-            LISTA DE CONVERSAS
-        ====================================================== */}
+        <div className="main-panel">
 
-        <aside className="whatsapp-sidebar">
+          <aside className="left-list">
 
-          <div className="whatsapp-sidebar-header">
+            <div className="list-header">
 
-            <div className="whatsapp-title">
+              <div className="list-title">
 
-              <div className="whatsapp-title-icon">
-                <MessageCircle size={21} />
+                <div className="list-title-icon">
+                  <MessageCircle size={20} />
+                </div>
+
+                <div>
+                  <strong>
+                    WhatsApp
+                  </strong>
+
+                  <span>
+                    Atendimento Águia Express
+                  </span>
+                </div>
+
               </div>
 
-              <div>
+              <div className="search-box">
 
-                <h1>
-                  WhatsApp
-                </h1>
+                <Search size={15} />
 
-                <p>
-                  Atendimento Águia Express
-                </p>
+                <input
+                  value={busca}
+                  onChange={(e) =>
+                    setBusca(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Pesquisar..."
+                />
 
               </div>
 
             </div>
 
-            <div className="whatsapp-search">
+            <div className="list-content">
 
-              <Search size={16} />
+              {conversasFiltradas.length ===
+              0 ? (
 
-              <input
-                type="text"
-                value={busca}
-                onChange={(event) =>
-                  setBusca(
-                    event.target.value
-                  )
-                }
-                placeholder="Pesquisar conversa..."
-              />
+                <div className="empty">
+                  Nenhuma conversa encontrada.
+                </div>
+
+              ) : (
+
+                conversasFiltradas.map(
+                  (conversa) => {
+
+                    const ultima =
+                      conversa
+                        .mensagens?.[
+                        conversa
+                          .mensagens
+                          .length - 1
+                      ];
+
+                    return (
+
+                      <button
+                        key={conversa.id}
+                        type="button"
+                        className={`list-item ${
+                          selecionada?.id ===
+                          conversa.id
+                            ? "selected"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          setSelecionada(
+                            conversa
+                          )
+                        }
+                      >
+
+                        <div className="avatar">
+                          {(conversa.nome ||
+                            "C")
+                            .charAt(0)
+                            .toUpperCase()}
+                        </div>
+
+                        <div className="item-info">
+
+                          <div className="item-name">
+                            {conversa.nome ||
+                              "Cliente"}
+                          </div>
+
+                          <div className="item-number">
+                            {formatarNumero(
+                              conversa.numero
+                            )}
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: 5,
+                              color: "#667085",
+                              fontSize: 9,
+                              overflow: "hidden",
+                              whiteSpace: "nowrap",
+                              textOverflow:
+                                "ellipsis",
+                            }}
+                          >
+                            {ultima?.texto ||
+                              "Nova mensagem"}
+                          </div>
+
+                        </div>
+
+                      </button>
+
+                    );
+                  }
+                )
+
+              )}
 
             </div>
 
-          </div>
+          </aside>
 
-          <div className="whatsapp-conversations">
+          <section className="right-panel">
 
-            {conversasFiltradas.length === 0 ? (
+            {!selecionada ? (
 
-              <div className="whatsapp-empty-list">
-                Nenhuma conversa encontrada.
+              <div className="empty">
+                Selecione uma conversa.
               </div>
 
             ) : (
 
-              conversasFiltradas.map(
-                (conversa) => {
+              <>
 
-                  const ultimaMensagem =
-                    conversa.mensagens?.[
-                      conversa
-                        .mensagens
-                        .length - 1
-                    ];
+                <header className="right-header">
 
-                  return (
-                    <button
-                      key={conversa.id}
-                      type="button"
-                      className={`whatsapp-conversation ${
-                        selecionada?.id ===
-                        conversa.id
-                          ? "selected"
-                          : ""
-                      }`}
-                      onClick={() =>
-                        setSelecionada(
-                          conversa
-                        )
-                      }
-                    >
+                  <div className="right-user">
 
-                      <div className="whatsapp-avatar">
+                    <div className="avatar">
+                      {(selecionada.nome ||
+                        "C")
+                        .charAt(0)
+                        .toUpperCase()}
+                    </div>
 
-                        {(conversa.nome ||
-                          "C")
-                          .charAt(0)
-                          .toUpperCase()}
+                    <div className="right-user-info">
 
-                      </div>
+                      <strong>
+                        {selecionada.nome ||
+                          "Cliente"}
+                      </strong>
 
-                      <div className="whatsapp-conversation-content">
-
-                        <div className="whatsapp-conversation-top">
-
-                          <span className="whatsapp-name">
-                            {conversa.nome ||
-                              "Cliente"}
-                          </span>
-
-                          <span className="whatsapp-time">
-                            {formatarData(
-                              ultimaMensagem?.em
-                            )}
-                          </span>
-
-                        </div>
-
-                        <div className="whatsapp-number">
-                          {formatarNumero(
-                            conversa.numero
-                          )}
-                        </div>
-
-                        <div className="whatsapp-last-message">
-
-                          {ultimaMensagem?.texto ||
-                            "Nova conversa"}
-
-                        </div>
-
-                        {conversa.atendimentoHumano && (
-                          <span className="whatsapp-human">
-                            ATENDIMENTO HUMANO
-                          </span>
+                      <span>
+                        {formatarNumero(
+                          selecionada.numero
                         )}
+                      </span>
 
-                      </div>
-
-                    </button>
-                  );
-                }
-              )
-
-            )}
-
-          </div>
-
-        </aside>
-
-        {/* ======================================================
-            CHAT
-        ====================================================== */}
-
-        <section className="whatsapp-chat">
-
-          {!selecionada ? (
-
-            <div className="whatsapp-no-chat">
-
-              <div>
-
-                <MessageCircle size={42} />
-
-                <div>
-                  Selecione uma conversa
-                </div>
-
-              </div>
-
-            </div>
-
-          ) : (
-
-            <>
-
-              {/* CABEÇALHO */}
-
-              <header className="whatsapp-chat-header">
-
-                <div className="whatsapp-chat-user">
-
-                  <div className="whatsapp-avatar">
-
-                    {(selecionada.nome ||
-                      "C")
-                      .charAt(0)
-                      .toUpperCase()}
+                    </div>
 
                   </div>
 
-                  <div className="whatsapp-chat-user-info">
+                </header>
 
-                    <strong>
-                      {selecionada.nome ||
-                        "Cliente"}
-                    </strong>
+                <div className="messages">
 
-                    <span>
-                      {formatarNumero(
-                        selecionada.numero
-                      )}
-                    </span>
+                  <div className="messages-inner">
 
-                  </div>
+                    {(
+                      selecionada.mensagens ||
+                      []
+                    ).map(
+                      (
+                        item,
+                        index
+                      ) => {
 
-                </div>
+                        const fotos =
+                          obterFotosMensagem(
+                            item
+                          );
 
-                <div className="whatsapp-status">
-
-                  <span className="whatsapp-status-dot" />
-
-                  WhatsApp conectado
-
-                </div>
-
-              </header>
-
-              {/* MENSAGENS */}
-
-              <div className="whatsapp-messages">
-
-                <div className="whatsapp-messages-inner">
-
-                  {(
-                    selecionada.mensagens ||
-                    []
-                  ).map(
-                    (
-                      item,
-                      index
-                    ) => {
-
-                      const cliente =
-                        item.papel ===
-                        "cliente";
-
-                      const fotos =
-                        obterFotosMensagem(
-                          item
-                        );
-
-                      return (
-                        <div
-                          key={`${index}-${item.texto || "foto"}`}
-                          className={`whatsapp-message-row ${
-                            cliente
-                              ? "client"
-                              : "assistant"
-                          }`}
-                        >
+                        return (
 
                           <div
-                            className={`whatsapp-message ${
-                              cliente
-                                ? "client"
-                                : "assistant"
+                            key={index}
+                            className={`message-row ${
+                              item.papel
                             }`}
                           >
 
-                            {item.texto && (
-                              <div className="whatsapp-message-text">
-                                {item.texto}
-                              </div>
-                            )}
+                            <div
+                              className={`message ${
+                                item.papel
+                              }`}
+                            >
 
-                            {fotos.map(
-                              (
-                                foto,
-                                fotoIndex
-                              ) => (
+                              {item.texto && (
 
-                                <img
-                                  key={`${foto}-${fotoIndex}`}
-                                  src={foto}
-                                  alt="Imagem enviada pelo WhatsApp"
-                                  className="whatsapp-message-photo"
-                                  loading="lazy"
-                                  onClick={() =>
-                                    setFotoAberta(
-                                      foto
-                                    )
-                                  }
-                                  onError={(
-                                    event
-                                  ) => {
-                                    (
-                                      event.currentTarget as HTMLImageElement
-                                    ).style.display =
-                                      "none";
-                                  }}
-                                />
-
-                              )
-                            )}
-
-                            {item.tipo &&
-                              !item.texto &&
-                              fotos.length ===
-                                0 && (
-                                <div className="whatsapp-message-text">
-                                  📎 Mídia recebida
+                                <div className="message-text">
+                                  {item.texto}
                                 </div>
+
                               )}
 
-                            <div className="whatsapp-message-time">
-                              {formatarData(
-                                item.em
+                              {fotos.map(
+                                (
+                                  foto,
+                                  fotoIndex
+                                ) => (
+
+                                  <img
+                                    key={
+                                      fotoIndex
+                                    }
+                                    src={foto}
+                                    alt="Imagem recebida"
+                                    className="message-image"
+                                    onClick={() =>
+                                      setFotoAberta(
+                                        foto
+                                      )
+                                    }
+                                  />
+
+                                )
                               )}
+
+                              {!item.texto &&
+                                fotos.length ===
+                                  0 && (
+
+                                  <div>
+                                    <ImageIcon
+                                      size={15}
+                                      style={{
+                                        verticalAlign:
+                                          "middle",
+                                        marginRight:
+                                          5,
+                                      }}
+                                    />
+
+                                    Mídia recebida
+                                  </div>
+
+                                )}
+
+                              <div className="message-time">
+                                {formatarData(
+                                  item.em
+                                )}
+                              </div>
+
                             </div>
 
                           </div>
 
-                        </div>
-                      );
-                    }
-                  )}
+                        );
+                      }
+                    )}
+
+                  </div>
 
                 </div>
 
-              </div>
-
-              {/* ERRO */}
-
-              {erro && (
-                <div className="whatsapp-error">
-                  {erro}
-                </div>
-              )}
-
-              {/* COMPOSITOR */}
-
-              <div className="whatsapp-compose">
-
-                <div className="whatsapp-compose-inner">
+                <div className="compose">
 
                   <textarea
                     value={texto}
-                    onChange={(event) =>
+                    onChange={(e) =>
                       setTexto(
-                        event.target.value
+                        e.target.value
                       )
                     }
-                    onKeyDown={(event) => {
+                    onKeyDown={(e) => {
 
                       if (
-                        event.key ===
-                          "Enter" &&
-                        !event.shiftKey
+                        e.key === "Enter" &&
+                        !e.shiftKey
                       ) {
-                        event.preventDefault();
+                        e.preventDefault();
 
                         enviarMensagem();
                       }
@@ -2298,455 +1857,800 @@ export default function WhatsApp() {
 
                   <button
                     type="button"
-                    className="whatsapp-send"
-                    onClick={
-                      enviarMensagem
-                    }
+                    className="send-button"
                     disabled={
                       enviando ||
                       !texto.trim()
                     }
-                    title="Enviar mensagem"
+                    onClick={
+                      enviarMensagem
+                    }
                   >
-
-                    <Send size={18} />
-
+                    <Send size={17} />
                   </button>
 
                 </div>
 
-              </div>
+              </>
 
-            </>
+            )}
 
-          )}
-
-        </section>
-
-      </div>
-
-      {/* ========================================================
-          DETALHE DO CADASTRO
-      ======================================================== */}
-
-      {cadastroSelecionado && (
-
-        <div
-          className="cadastro-detalhe"
-          onClick={() =>
-            setCadastroSelecionado(null)
-          }
-        >
-
-          <div
-            className="cadastro-detalhe-card"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
-          >
-
-            <header className="cadastro-detalhe-header">
-
-              <div>
-
-                <strong>
-                  {cadastroSelecionado.nomeCompleto ||
-                    "Cadastro de entregador"}
-                </strong>
-
-                <div
-                  style={{
-                    marginTop: 3,
-                    color: "#98a2b3",
-                    fontSize: 9,
-                  }}
-                >
-                  Dados coletados pela IA
-                </div>
-
-              </div>
-
-              <button
-                type="button"
-                className="cadastro-fechar"
-                onClick={() =>
-                  setCadastroSelecionado(
-                    null
-                  )
-                }
-              >
-
-                <X size={17} />
-
-              </button>
-
-            </header>
-
-            <div className="cadastro-detalhe-body">
-
-              {/* DADOS PRINCIPAIS */}
-
-              <div className="cadastro-info-grid">
-
-                <div className="cadastro-info">
-
-                  <small>
-                    STATUS
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.status
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    ORIGEM
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.origem
-                    ) ||
-                      "WHATSAPP"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    NOME COMPLETO
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.nomeCompleto
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    WHATSAPP
-                  </small>
-
-                  <strong>
-                    {formatarNumero(
-                      cadastroSelecionado.numeroWhatsApp ||
-                        ""
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    TELEFONE
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.telefone
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    TELEFONE PARA CONTATO
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.telefoneContato
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-                <div className="cadastro-info">
-
-                  <small>
-                    CPF
-                  </small>
-
-                  <strong>
-                    {textoSeguro(
-                      cadastroSelecionado.cpf
-                    ) ||
-                      "—"}
-                  </strong>
-
-                </div>
-
-              </div>
-
-              {/* ENDEREÇO */}
-
-              <div className="cadastro-secao">
-
-                <div className="cadastro-secao-title">
-
-                  <MapPin size={14} />
-
-                  ENDEREÇO
-
-                </div>
-
-                <div className="cadastro-info-grid">
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      CEP
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.cep
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      RUA
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.rua
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      NÚMERO
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.numero
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              {/* DADOS BANCÁRIOS */}
-
-              <div className="cadastro-secao">
-
-                <div className="cadastro-secao-title">
-
-                  <CreditCard size={14} />
-
-                  DADOS PARA PAGAMENTO
-
-                </div>
-
-                <div className="cadastro-info-grid">
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      CHAVE PIX
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.pix
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      BANCO
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.banco
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      FAVORECIDO
-                    </small>
-
-                    <strong>
-                      {textoSeguro(
-                        cadastroSelecionado.favorecido
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              {/* DATAS */}
-
-              <div className="cadastro-secao">
-
-                <div className="cadastro-secao-title">
-
-                  <Clock size={14} />
-
-                  CONTROLE
-
-                </div>
-
-                <div className="cadastro-info-grid">
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      CRIADO EM
-                    </small>
-
-                    <strong>
-                      {formatarData(
-                        cadastroSelecionado.criadoEm
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                  <div className="cadastro-info">
-
-                    <small>
-                      ATUALIZADO EM
-                    </small>
-
-                    <strong>
-                      {formatarData(
-                        cadastroSelecionado.atualizadoEm
-                      ) ||
-                        "—"}
-                    </strong>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              {/* FOTOS */}
-
-              {(() => {
-
-                const fotos =
-                  obterFotosCadastro(
-                    cadastroSelecionado
-                  );
-
-                if (
-                  fotos.length === 0
-                ) {
-                  return null;
-                }
-
-                return (
-                  <div className="cadastro-secao">
-
-                    <div className="cadastro-secao-title">
-
-                      <Camera size={14} />
-
-                      FOTOS DO CADASTRO
-
-                    </div>
-
-                    <div className="cadastro-fotos">
-
-                      {fotos.map(
-                        (
-                          foto,
-                          index
-                        ) => (
-
-                          <img
-                            key={`${foto}-${index}`}
-                            src={foto}
-                            alt={`Foto do cadastro ${
-                              index + 1
-                            }`}
-                            className="cadastro-foto"
-                            loading="lazy"
-                            onClick={() =>
-                              setFotoAberta(
-                                foto
-                              )
-                            }
-                            onError={(
-                              event
-                            ) => {
-                              (
-                                event.currentTarget as HTMLImageElement
-                              ).style.display =
-                                "none";
-                            }}
-                          />
-
-                        )
-                      )}
-
-                    </div>
-
-                  </div>
-                );
-
-              })()}
-
-            </div>
-
-          </div>
+          </section>
 
         </div>
 
       )}
 
       {/* ========================================================
-          MODAL DA FOTO
+          CADASTRO PENDENTE
+      ======================================================== */}
+
+      {aba === "cadastro" && (
+
+        <div className="main-panel">
+
+          {/* LISTA */}
+
+          <aside className="left-list">
+
+            <div className="list-header">
+
+              <div className="list-title">
+
+                <div className="list-title-icon">
+                  <UserPlus size={20} />
+                </div>
+
+                <div>
+                  <strong>
+                    Cadastros
+                  </strong>
+
+                  <span>
+                    Pendentes de análise
+                  </span>
+                </div>
+
+              </div>
+
+              <div className="search-box">
+
+                <Search size={15} />
+
+                <input
+                  value={buscaCadastro}
+                  onChange={(e) =>
+                    setBuscaCadastro(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Pesquisar..."
+                />
+
+              </div>
+
+            </div>
+
+            <div className="list-content">
+
+              {cadastrosFiltrados.length ===
+              0 ? (
+
+                <div className="empty">
+                  Nenhum cadastro pendente.
+                </div>
+
+              ) : (
+
+                cadastrosFiltrados.map(
+                  (cadastro) => (
+
+                    <button
+                      key={cadastro.id}
+                      type="button"
+                      className={`list-item ${
+                        cadastroSelecionado?.id ===
+                        cadastro.id
+                          ? "selected"
+                          : ""
+                      }`}
+                      onClick={() => {
+                        setCadastroSelecionado(
+                          cadastro
+                        );
+
+                        setEditando(null);
+                      }}
+                    >
+
+                      <div className="avatar">
+                        {(
+                          cadastro.nomeCompleto ||
+                          "E"
+                        )
+                          .charAt(0)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="item-info">
+
+                        <div className="item-name">
+                          {cadastro.nomeCompleto ||
+                            "Cadastro em andamento"}
+                        </div>
+
+                        <div className="item-number">
+                          {formatarNumero(
+                            cadastro.numeroWhatsApp ||
+                              ""
+                          )}
+                        </div>
+
+                        <div className="item-status">
+
+                          <Clock
+                            size={9}
+                          />
+
+                          {String(
+                            cadastro.status ||
+                              "PENDENTE"
+                          ).replace(
+                            "_",
+                            " "
+                          )}
+
+                        </div>
+
+                      </div>
+
+                    </button>
+
+                  )
+                )
+
+              )}
+
+            </div>
+
+          </aside>
+
+          {/* DADOS */}
+
+          <section className="right-panel">
+
+            {!cadastroSelecionado ? (
+
+              <div className="empty">
+                Selecione um cadastro.
+              </div>
+
+            ) : (
+
+              <>
+
+                <header className="right-header">
+
+                  <div className="right-user">
+
+                    <div className="avatar">
+                      {(
+                        cadastroSelecionado
+                          .nomeCompleto ||
+                        "E"
+                      )
+                        .charAt(0)
+                        .toUpperCase()}
+                    </div>
+
+                    <div className="right-user-info">
+
+                      <strong>
+                        {cadastroSelecionado.nomeCompleto ||
+                          "Cadastro de entregador"}
+                      </strong>
+
+                      <span>
+                        {formatarNumero(
+                          cadastroSelecionado.numeroWhatsApp ||
+                            ""
+                        )}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                  {!editando && (
+
+                    <button
+                      type="button"
+                      className="edit-button"
+                      onClick={() =>
+                        iniciarEdicao(
+                          cadastroSelecionado
+                        )
+                      }
+                    >
+                      EDITAR CADASTRO
+                    </button>
+
+                  )}
+
+                </header>
+
+                <div className="cadastro-body">
+
+                  {editando ? (
+
+                    <>
+
+                      <div className="cadastro-grid">
+
+                        <div className="field full">
+
+                          <label>
+                            Nome completo
+                          </label>
+
+                          <input
+                            value={
+                              editando.nomeCompleto ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "nomeCompleto",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            WhatsApp
+                          </label>
+
+                          <input
+                            value={
+                              editando.numeroWhatsApp ||
+                              ""
+                            }
+                            disabled
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Telefone
+                          </label>
+
+                          <input
+                            value={
+                              editando.telefone ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "telefone",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Telefone para contato
+                          </label>
+
+                          <input
+                            value={
+                              editando.telefoneContato ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "telefoneContato",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            CPF
+                          </label>
+
+                          <input
+                            value={
+                              editando.cpf || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "cpf",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            CEP
+                          </label>
+
+                          <input
+                            value={
+                              editando.cep || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "cep",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Rua
+                          </label>
+
+                          <input
+                            value={
+                              editando.rua || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "rua",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Número
+                          </label>
+
+                          <input
+                            value={
+                              editando.numero || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "numero",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        {/* REGIÃO */}
+
+                        <div className="region-card">
+
+                          <div className="region-card-title">
+
+                            <MapPin size={14} />
+
+                            REGIÃO ESCOLHIDA
+
+                          </div>
+
+                          <select
+                            value={
+                              editando.regiaoEscolhida ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "regiaoEscolhida",
+                                e.target.value
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              height: 40,
+                              border:
+                                "1px solid #eadca7",
+                              borderRadius: 9,
+                              padding:
+                                "0 10px",
+                              background:
+                                "#ffffff",
+                              outline: "none",
+                            }}
+                          >
+
+                            <option value="">
+                              Selecione a região
+                            </option>
+
+                            {REGIOES.map(
+                              (regiao) => (
+
+                                <option
+                                  key={regiao}
+                                  value={regiao}
+                                >
+                                  {regiao}
+                                </option>
+
+                              )
+                            )}
+
+                          </select>
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Chave Pix
+                          </label>
+
+                          <input
+                            value={
+                              editando.pix || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "pix",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field">
+
+                          <label>
+                            Banco
+                          </label>
+
+                          <input
+                            value={
+                              editando.banco || ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "banco",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                        <div className="field full">
+
+                          <label>
+                            Nome do favorecido
+                          </label>
+
+                          <input
+                            value={
+                              editando.favorecido ||
+                              ""
+                            }
+                            onChange={(e) =>
+                              alterarCampo(
+                                "favorecido",
+                                e.target.value
+                              )
+                            }
+                          />
+
+                        </div>
+
+                      </div>
+
+                      <div className="save-area">
+
+                        <div>
+
+                          {mensagem && (
+                            <span className="success-message">
+                              {mensagem}
+                            </span>
+                          )}
+
+                        </div>
+
+                        <button
+                          type="button"
+                          className="save-button"
+                          disabled={salvando}
+                          onClick={
+                            salvarCadastro
+                          }
+                        >
+
+                          <Save size={15} />
+
+                          {salvando
+                            ? "SALVANDO..."
+                            : "SALVAR ALTERAÇÕES"}
+
+                        </button>
+
+                      </div>
+
+                    </>
+
+                  ) : (
+
+                    <div className="cadastro-grid">
+
+                      <div className="field full">
+
+                        <label>
+                          Nome completo
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.nomeCompleto ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          WhatsApp
+                        </label>
+
+                        <input
+                          value={formatarNumero(
+                            cadastroSelecionado.numeroWhatsApp ||
+                              ""
+                          )}
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Telefone
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.telefone ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Telefone para contato
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.telefoneContato ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          CPF
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.cpf ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          CEP
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.cep ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Rua
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.rua ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Número
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.numero ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="region-card">
+
+                        <div className="region-card-title">
+
+                          <MapPin size={14} />
+
+                          REGIÃO ESCOLHIDA
+
+                        </div>
+
+                        <strong
+                          style={{
+                            color: "#101828",
+                            fontSize: 13,
+                          }}
+                        >
+                          {cadastroSelecionado.regiaoEscolhida ||
+                            "Ainda não escolhida"}
+                        </strong>
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Chave Pix
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.pix ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Banco
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.banco ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field full">
+
+                        <label>
+                          Nome do favorecido
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.favorecido ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Status
+                        </label>
+
+                        <input
+                          value={
+                            cadastroSelecionado.status ||
+                            ""
+                          }
+                          readOnly
+                        />
+
+                      </div>
+
+                      <div className="field">
+
+                        <label>
+                          Atualizado em
+                        </label>
+
+                        <input
+                          value={formatarData(
+                            cadastroSelecionado.atualizadoEm
+                          )}
+                          readOnly
+                        />
+
+                      </div>
+
+                    </div>
+
+                  )}
+
+                </div>
+
+              </>
+
+            )}
+
+          </section>
+
+        </div>
+
+      )}
+
+      {/* ========================================================
+          FOTO
       ======================================================== */}
 
       {fotoAberta && (
@@ -2760,23 +2664,23 @@ export default function WhatsApp() {
 
           <button
             type="button"
-            className="foto-modal-close"
-            onClick={(event) => {
-              event.stopPropagation();
+            className="foto-close"
+            onClick={(e) => {
+              e.stopPropagation();
 
               setFotoAberta(null);
             }}
           >
 
-            <X size={20} />
+            <X size={18} />
 
           </button>
 
           <img
             src={fotoAberta}
-            alt="Visualização da imagem"
-            onClick={(event) =>
-              event.stopPropagation()
+            alt="Imagem"
+            onClick={(e) =>
+              e.stopPropagation()
             }
           />
 

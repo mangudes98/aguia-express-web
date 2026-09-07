@@ -11,7 +11,11 @@ import {
   query,
   Timestamp,
 } from "firebase/firestore";
-import { MessageCircle, Send, Search, UserRound } from "lucide-react";
+import {
+  MessageCircle,
+  Send,
+  Search,
+} from "lucide-react";
 
 import { db } from "../services/firebase/firebase";
 
@@ -46,7 +50,9 @@ function formatarData(valor?: Timestamp | Date | string) {
       data = new Date(valor);
     }
 
-    if (Number.isNaN(data.getTime())) return "";
+    if (Number.isNaN(data.getTime())) {
+      return "";
+    }
 
     return data.toLocaleString("pt-BR", {
       day: "2-digit",
@@ -78,18 +84,23 @@ function formatarNumero(numero: string) {
 
 export default function WhatsApp() {
   const [conversas, setConversas] = useState<Conversa[]>([]);
-  const [selecionada, setSelecionada] = useState<Conversa | null>(null);
+  const [selecionada, setSelecionada] =
+    useState<Conversa | null>(null);
+
   const [busca, setBusca] = useState("");
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
 
   // ============================================================
-  // CARREGAR CONVERSAS DO WHATSAPP
+  // CARREGAR CONVERSAS EM TEMPO REAL
   // ============================================================
 
   useEffect(() => {
-    const referencia = collection(db, "whatsapp_conversas");
+    const referencia = collection(
+      db,
+      "whatsapp_conversas"
+    );
 
     const consulta = query(
       referencia,
@@ -99,10 +110,15 @@ export default function WhatsApp() {
     const cancelar = onSnapshot(
       consulta,
       (snapshot) => {
-        const lista: Conversa[] = snapshot.docs.map((documento) => ({
-          id: documento.id,
-          ...(documento.data() as Omit<Conversa, "id">),
-        }));
+        const lista: Conversa[] = snapshot.docs.map(
+          (documento) => ({
+            id: documento.id,
+            ...(documento.data() as Omit<
+              Conversa,
+              "id"
+            >),
+          })
+        );
 
         setConversas(lista);
 
@@ -112,15 +128,23 @@ export default function WhatsApp() {
           }
 
           return (
-            lista.find((item) => item.id === atual.id) ||
+            lista.find(
+              (item) => item.id === atual.id
+            ) ||
             lista[0] ||
             null
           );
         });
       },
       (error) => {
-        console.error("Erro ao carregar WhatsApp:", error);
-        setErro("Não foi possível carregar as conversas.");
+        console.error(
+          "Erro ao carregar conversas:",
+          error
+        );
+
+        setErro(
+          "Não foi possível carregar as conversas."
+        );
       }
     );
 
@@ -128,7 +152,7 @@ export default function WhatsApp() {
   }, []);
 
   // ============================================================
-  // FILTRO
+  // PESQUISA
   // ============================================================
 
   const conversasFiltradas = useMemo(() => {
@@ -139,8 +163,13 @@ export default function WhatsApp() {
     }
 
     return conversas.filter((conversa) => {
-      const nome = String(conversa.nome || "").toLowerCase();
-      const numero = String(conversa.numero || "").toLowerCase();
+      const nome = String(
+        conversa.nome || ""
+      ).toLowerCase();
+
+      const numero = String(
+        conversa.numero || ""
+      ).toLowerCase();
 
       const ultimaMensagem =
         conversa.mensagens?.[
@@ -160,7 +189,11 @@ export default function WhatsApp() {
   // ============================================================
 
   async function enviarMensagem() {
-    if (!selecionada || !texto.trim() || enviando) {
+    if (
+      !selecionada ||
+      !texto.trim() ||
+      enviando
+    ) {
       return;
     }
 
@@ -168,28 +201,39 @@ export default function WhatsApp() {
     setErro("");
 
     try {
-      const resposta = await fetch("/api/whatsapp/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          numero: selecionada.numero,
-          mensagem: texto.trim(),
-        }),
-      });
+      const resposta = await fetch(
+        "/api/whatsapp/send",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            numero: selecionada.numero,
+            mensagem: texto.trim(),
+          }),
+        }
+      );
 
-      const dados = await resposta.json().catch(() => ({}));
+      const dados =
+        await resposta
+          .json()
+          .catch(() => ({}));
 
       if (!resposta.ok) {
         throw new Error(
-          dados?.error || "Não foi possível enviar a mensagem."
+          dados?.error ||
+            "Não foi possível enviar a mensagem."
         );
       }
 
       setTexto("");
     } catch (error) {
-      console.error("Erro ao enviar mensagem:", error);
+      console.error(
+        "Erro ao enviar mensagem:",
+        error
+      );
 
       setErro(
         error instanceof Error
@@ -209,29 +253,38 @@ export default function WhatsApp() {
     <div className="whatsapp-page">
 
       <style>{`
+        /* ======================================================
+           CONTAINER
+        ====================================================== */
+
         .whatsapp-page {
           width: 100%;
-          height: calc(100vh - 76px);
-          min-height: 600px;
+          height: 100%;
+          min-height: 0;
           display: flex;
           overflow: hidden;
           background: #f5f6f8;
-          border-radius: 16px;
           border: 1px solid #eaecf0;
+          border-radius: 16px;
         }
+
+        /* ======================================================
+           LISTA DE CONVERSAS
+        ====================================================== */
 
         .whatsapp-sidebar {
           width: 350px;
           min-width: 350px;
           height: 100%;
+          min-height: 0;
           display: flex;
           flex-direction: column;
-          background: #fff;
+          background: #ffffff;
           border-right: 1px solid #eaecf0;
         }
 
         .whatsapp-sidebar-header {
-          padding: 22px;
+          padding: 20px;
           border-bottom: 1px solid #eaecf0;
         }
 
@@ -247,9 +300,10 @@ export default function WhatsApp() {
           display: flex;
           align-items: center;
           justify-content: center;
+          flex-shrink: 0;
           border-radius: 12px;
           background: #111827;
-          color: #fff;
+          color: #ffffff;
         }
 
         .whatsapp-title h1 {
@@ -265,6 +319,10 @@ export default function WhatsApp() {
           font-size: 11px;
         }
 
+        /* ======================================================
+           PESQUISA
+        ====================================================== */
+
         .whatsapp-search {
           position: relative;
           margin-top: 18px;
@@ -273,11 +331,12 @@ export default function WhatsApp() {
         .whatsapp-search svg {
           position: absolute;
           left: 12px;
-          top: 12px;
+          top: 11px;
           color: #98a2b3;
         }
 
         .whatsapp-search input {
+          box-sizing: border-box;
           width: 100%;
           height: 40px;
           padding: 0 12px 0 38px;
@@ -286,27 +345,35 @@ export default function WhatsApp() {
           outline: none;
           background: #f9fafb;
           color: #101828;
+          font-family: inherit;
           font-size: 12px;
         }
 
         .whatsapp-search input:focus {
           border-color: #c9a227;
-          background: #fff;
+          background: #ffffff;
         }
+
+        /* ======================================================
+           CONVERSAS
+        ====================================================== */
 
         .whatsapp-conversations {
           flex: 1;
+          min-height: 0;
           overflow-y: auto;
         }
 
         .whatsapp-conversation {
+          box-sizing: border-box;
           width: 100%;
-          padding: 15px;
+          padding: 14px;
           display: flex;
+          align-items: flex-start;
           gap: 12px;
           border: 0;
           border-bottom: 1px solid #f2f4f7;
-          background: #fff;
+          background: #ffffff;
           text-align: left;
           cursor: pointer;
         }
@@ -329,7 +396,7 @@ export default function WhatsApp() {
           justify-content: center;
           border-radius: 50%;
           background: #111827;
-          color: #fff;
+          color: #ffffff;
           font-size: 14px;
           font-weight: 800;
         }
@@ -341,11 +408,13 @@ export default function WhatsApp() {
 
         .whatsapp-conversation-top {
           display: flex;
+          align-items: center;
           justify-content: space-between;
           gap: 8px;
         }
 
         .whatsapp-name {
+          min-width: 0;
           overflow: hidden;
           color: #101828;
           font-size: 12px;
@@ -393,30 +462,38 @@ export default function WhatsApp() {
           font-size: 12px;
         }
 
+        /* ======================================================
+           CHAT
+        ====================================================== */
+
         .whatsapp-chat {
           min-width: 0;
+          min-height: 0;
           flex: 1;
           height: 100%;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
 
         .whatsapp-chat-header {
-          min-height: 75px;
-          padding: 15px 22px;
+          min-height: 72px;
+          box-sizing: border-box;
+          padding: 14px 20px;
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 15px;
-          background: #fff;
+          flex-shrink: 0;
+          background: #ffffff;
           border-bottom: 1px solid #eaecf0;
         }
 
         .whatsapp-chat-user {
+          min-width: 0;
           display: flex;
           align-items: center;
           gap: 12px;
-          min-width: 0;
         }
 
         .whatsapp-chat-user-info {
@@ -440,10 +517,15 @@ export default function WhatsApp() {
           font-size: 10px;
         }
 
+        /* ======================================================
+           STATUS
+        ====================================================== */
+
         .whatsapp-status {
           display: flex;
           align-items: center;
           gap: 6px;
+          flex-shrink: 0;
           padding: 6px 9px;
           border-radius: 20px;
           background: #ecfdf3;
@@ -459,14 +541,20 @@ export default function WhatsApp() {
           background: #22c55e;
         }
 
+        /* ======================================================
+           MENSAGENS
+        ====================================================== */
+
         .whatsapp-messages {
           flex: 1;
+          min-height: 0;
           overflow-y: auto;
-          padding: 25px;
+          padding: 24px;
           background: #f5f6f8;
         }
 
         .whatsapp-messages-inner {
+          width: 100%;
           max-width: 900px;
           margin: 0 auto;
           display: flex;
@@ -475,6 +563,7 @@ export default function WhatsApp() {
         }
 
         .whatsapp-message-row {
+          width: 100%;
           display: flex;
         }
 
@@ -490,19 +579,19 @@ export default function WhatsApp() {
           max-width: 70%;
           padding: 10px 13px;
           border-radius: 14px;
-          box-shadow: 0 1px 3px rgba(16,24,40,.06);
+          box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
         }
 
         .whatsapp-message.client {
           border-top-left-radius: 4px;
-          background: #fff;
+          background: #ffffff;
           color: #344054;
         }
 
         .whatsapp-message.assistant {
           border-top-right-radius: 4px;
           background: #111827;
-          color: #fff;
+          color: #ffffff;
         }
 
         .whatsapp-message-text {
@@ -519,13 +608,20 @@ export default function WhatsApp() {
           text-align: right;
         }
 
+        /* ======================================================
+           COMPOSITOR
+        ====================================================== */
+
         .whatsapp-compose {
-          padding: 14px 20px;
-          background: #fff;
+          box-sizing: border-box;
+          padding: 12px 18px;
+          flex-shrink: 0;
+          background: #ffffff;
           border-top: 1px solid #eaecf0;
         }
 
         .whatsapp-compose-inner {
+          width: 100%;
           max-width: 900px;
           margin: 0 auto;
           display: flex;
@@ -534,7 +630,9 @@ export default function WhatsApp() {
         }
 
         .whatsapp-compose textarea {
+          box-sizing: border-box;
           flex: 1;
+          min-width: 0;
           min-height: 45px;
           max-height: 120px;
           resize: none;
@@ -550,24 +648,25 @@ export default function WhatsApp() {
 
         .whatsapp-compose textarea:focus {
           border-color: #c9a227;
-          background: #fff;
+          background: #ffffff;
         }
 
         .whatsapp-send {
           width: 45px;
           height: 45px;
+          min-width: 45px;
           display: flex;
           align-items: center;
           justify-content: center;
           border: 0;
           border-radius: 12px;
           background: #111827;
-          color: #fff;
+          color: #ffffff;
           cursor: pointer;
         }
 
         .whatsapp-send:hover {
-          background: #000;
+          background: #000000;
         }
 
         .whatsapp-send:disabled {
@@ -575,56 +674,76 @@ export default function WhatsApp() {
           cursor: not-allowed;
         }
 
+        /* ======================================================
+           ERRO
+        ====================================================== */
+
         .whatsapp-error {
-          padding: 9px 20px;
+          padding: 9px 18px;
+          flex-shrink: 0;
           background: #fef2f2;
           border-top: 1px solid #fecaca;
           color: #b91c1c;
           font-size: 11px;
         }
 
+        /* ======================================================
+           SEM CONVERSA
+        ====================================================== */
+
         .whatsapp-no-chat {
           flex: 1;
+          min-height: 0;
           display: flex;
           align-items: center;
           justify-content: center;
           text-align: center;
           color: #98a2b3;
+          font-size: 12px;
         }
 
         .whatsapp-no-chat svg {
-          margin-bottom: 10px;
+          display: block;
+          margin: 0 auto 10px;
         }
 
-        @media (max-width: 800px) {
+        /* ======================================================
+           RESPONSIVO
+        ====================================================== */
+
+        @media (max-width: 900px) {
+
           .whatsapp-sidebar {
-            width: 280px;
-            min-width: 280px;
+            width: 300px;
+            min-width: 300px;
+          }
+
+          .whatsapp-message {
+            max-width: 82%;
           }
 
           .whatsapp-status {
             display: none;
           }
-
-          .whatsapp-message {
-            max-width: 85%;
-          }
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 650px) {
+
           .whatsapp-page {
-            height: calc(100vh - 100px);
-            min-height: 500px;
             border-radius: 10px;
           }
 
           .whatsapp-sidebar {
-            width: 90px;
-            min-width: 90px;
+            width: 85px;
+            min-width: 85px;
           }
 
           .whatsapp-sidebar-header {
             padding: 12px;
+          }
+
+          .whatsapp-title {
+            justify-content: center;
           }
 
           .whatsapp-title h1,
@@ -637,10 +756,6 @@ export default function WhatsApp() {
             display: none;
           }
 
-          .whatsapp-title {
-            justify-content: center;
-          }
-
           .whatsapp-conversation {
             justify-content: center;
             padding: 12px 5px;
@@ -650,12 +765,16 @@ export default function WhatsApp() {
             display: none;
           }
 
-          .whatsapp-messages {
-            padding: 15px;
-          }
-
           .whatsapp-chat-header {
             padding: 12px;
+          }
+
+          .whatsapp-messages {
+            padding: 12px;
+          }
+
+          .whatsapp-message {
+            max-width: 88%;
           }
 
           .whatsapp-compose {
@@ -692,7 +811,9 @@ export default function WhatsApp() {
             <input
               type="text"
               value={busca}
-              onChange={(event) => setBusca(event.target.value)}
+              onChange={(event) =>
+                setBusca(event.target.value)
+              }
               placeholder="Pesquisar conversa..."
             />
 
@@ -703,10 +824,13 @@ export default function WhatsApp() {
         <div className="whatsapp-conversations">
 
           {conversasFiltradas.length === 0 ? (
+
             <div className="whatsapp-empty-list">
               Nenhuma conversa encontrada.
             </div>
+
           ) : (
+
             conversasFiltradas.map((conversa) => {
 
               const ultimaMensagem =
@@ -723,7 +847,9 @@ export default function WhatsApp() {
                       ? "selected"
                       : ""
                   }`}
-                  onClick={() => setSelecionada(conversa)}
+                  onClick={() =>
+                    setSelecionada(conversa)
+                  }
                 >
 
                   <div className="whatsapp-avatar">
@@ -741,13 +867,17 @@ export default function WhatsApp() {
                       </span>
 
                       <span className="whatsapp-time">
-                        {formatarData(ultimaMensagem?.em)}
+                        {formatarData(
+                          ultimaMensagem?.em
+                        )}
                       </span>
 
                     </div>
 
                     <div className="whatsapp-number">
-                      {formatarNumero(conversa.numero)}
+                      {formatarNumero(
+                        conversa.numero
+                      )}
                     </div>
 
                     <div className="whatsapp-last-message">
@@ -766,6 +896,7 @@ export default function WhatsApp() {
                 </button>
               );
             })
+
           )}
 
         </div>
@@ -783,10 +914,13 @@ export default function WhatsApp() {
           <div className="whatsapp-no-chat">
 
             <div>
+
               <MessageCircle size={42} />
+
               <div>
                 Selecione uma conversa
               </div>
+
             </div>
 
           </div>
@@ -814,7 +948,9 @@ export default function WhatsApp() {
                   </strong>
 
                   <span>
-                    {formatarNumero(selecionada.numero)}
+                    {formatarNumero(
+                      selecionada.numero
+                    )}
                   </span>
 
                 </div>

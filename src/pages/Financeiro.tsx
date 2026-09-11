@@ -157,6 +157,14 @@ function inteiro(valor: any) {
   return Math.trunc(n(valor));
 }
 
+function estaPago(valor: any) {
+  return (
+    valor === true ||
+    valor === "true" ||
+    valor === 1
+  );
+}
+
 function normalizar(valor: any) {
   return String(valor ?? "")
     .trim()
@@ -1070,7 +1078,13 @@ export default function Financeiro() {
         configGanhosSnap,
         ganhosSnap,
       ] = await Promise.all([
-        listarRepasses().catch(() => []),
+        listarRepasses().catch((error) => {
+          console.error(
+            "Erro ao carregar repasses do Firebase:",
+            error
+          );
+          return null;
+        }),
         listarUsuarios().catch(() => []),
 
         getDocs(
@@ -1120,7 +1134,12 @@ export default function Financeiro() {
         })),
       ]);
 
-      setItems(repassesData || []);
+      // Não apaga pagamentos já carregados quando a leitura de repasses
+      // falhar. Isso evita que uma falha temporária de leitura faça um
+      // pagamento confirmado voltar visualmente para pendente.
+      if (Array.isArray(repassesData)) {
+        setItems(repassesData);
+      }
       setUsers(usuariosData || []);
 
       setPacotes(
@@ -1711,23 +1730,66 @@ export default function Financeiro() {
   function repassePagoNoPeriodo(
     usuarioId: string
   ) {
+    const usuario =
+      usuarioEncontrado(usuarioId);
+
+    const idsUsuario = new Set(
+      [
+        usuarioId,
+        usuario?.id,
+        usuario?.uid,
+        usuario?.email,
+        usuario?.usuario,
+      ]
+        .filter(Boolean)
+        .map(normalizar)
+    );
+
     return items.find(
       (repasse: any) => {
+        const idsRepasse = [
+          repasse.usuarioId,
+          repasse.usuarioUid,
+          repasse.usuarioEmail,
+          repasse.usuario,
+        ]
+          .filter(Boolean)
+          .map(normalizar);
+
         if (
-          normalizar(
-            repasse.usuarioId
-          ) !==
-          normalizar(usuarioId)
+          !idsRepasse.some((id: string) =>
+            idsUsuario.has(id)
+          )
         ) {
           return false;
         }
 
-        return (
+        if (!estaPago(repasse.pago)) {
+          return false;
+        }
+
+        const periodoPorCampos =
           String(
             repasse.quinzena || ""
           ) === quinzena &&
           Number(repasse.mes) === mes &&
-          Number(repasse.ano) === ano
+          Number(repasse.ano) === ano;
+
+        const periodoPorDatas =
+          dentroPeriodo(
+            data(repasse.dataInicio),
+            inicioRepasse,
+            fimRepasse
+          ) ||
+          dentroPeriodo(
+            data(repasse.dataFim),
+            inicioRepasse,
+            fimRepasse
+          );
+
+        return (
+          periodoPorCampos ||
+          periodoPorDatas
         );
       }
     );
@@ -1817,7 +1879,7 @@ export default function Financeiro() {
 
           return {
             ...calculado,
-            pago: Boolean(pago),
+            pago: estaPago(pago?.pago),
             pagamento:
               pago || null,
           };
@@ -2269,6 +2331,8 @@ export default function Financeiro() {
 
     try {
       const agora = new Date();
+      const usuario =
+        usuarioEncontrado(dados.usuarioId);
 
       const repasseRef =
         await addDoc(
@@ -2279,6 +2343,16 @@ export default function Financeiro() {
 
           usuarioNome:
             dados.nome,
+
+          usuarioEmail:
+            dados.email ||
+            usuario?.email ||
+            "",
+
+          usuarioUid:
+            usuario?.uid ||
+            usuario?.id ||
+            "",
 
           quinzena,
 
@@ -2373,9 +2447,65 @@ export default function Financeiro() {
         );
       }
 
+      const pagamentoLocal = {
+        id: repasseRef.id,
+        ...(dadosRepasseSalvo || {}),
+        pago: true,
+      };
+
       setRepasseAberto(null);
 
       await load();
+
+      // Garante que o pagamento recém-confirmado continue refletido na
+      // tela mesmo se a função legada listarRepasses retornar uma lista
+      // antiga ou vazia imediatamente após a gravação.
+      setItems((anteriores) => {
+        const idsPagamento = new Set(
+          [
+            dados.usuarioId,
+            dados.email,
+            usuario?.id,
+            usuario?.uid,
+            usuario?.email,
+          ]
+            .filter(Boolean)
+            .map(normalizar)
+        );
+
+        const semDuplicata =
+          anteriores.filter((item: any) => {
+            const idsItem = [
+              item.usuarioId,
+              item.usuarioUid,
+              item.usuarioEmail,
+              item.usuario,
+            ]
+              .filter(Boolean)
+              .map(normalizar);
+
+            const mesmoUsuario =
+              idsItem.some((id: string) =>
+                idsPagamento.has(id)
+              );
+
+            const mesmoPeriodo =
+              String(item.quinzena || "") ===
+                quinzena &&
+              Number(item.mes) === mes &&
+              Number(item.ano) === ano;
+
+            return !(
+              mesmoUsuario &&
+              mesmoPeriodo
+            );
+          });
+
+        return [
+          ...semDuplicata,
+          pagamentoLocal,
+        ];
+      });
 
       alert(
         "Pagamento confirmado com sucesso!"

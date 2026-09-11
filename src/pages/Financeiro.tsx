@@ -38,6 +38,7 @@ import {
   getDoc,
   getDocs,
   serverTimestamp,
+  Timestamp,
   updateDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
@@ -318,6 +319,33 @@ function labelQuinzena(
   return quinzena === "01_15"
     ? "01 ao 15"
     : "16 ao fim";
+}
+
+function ultimaQuinzenaFechada(
+  hoje: Date
+) {
+  if (hoje.getDate() <= 15) {
+    const mesAnterior =
+      new Date(
+        hoje.getFullYear(),
+        hoje.getMonth() - 1,
+        1
+      );
+
+    return {
+      mes:
+        mesAnterior.getMonth() + 1,
+      ano:
+        mesAnterior.getFullYear(),
+      quinzena: "16_fim",
+    };
+  }
+
+  return {
+    mes: hoje.getMonth() + 1,
+    ano: hoje.getFullYear(),
+    quinzena: "01_15",
+  };
 }
 
 function tipoPacote(tipo: any) {
@@ -828,6 +856,8 @@ function Comparativo({
 
 export default function Financeiro() {
   const hoje = new Date();
+  const periodoInicial =
+    ultimaQuinzenaFechada(hoje);
 
   const [aba, setAba] =
     useState<Aba>("REPASSES");
@@ -876,17 +906,13 @@ export default function Financeiro() {
     useState("TODOS");
 
   const [mes, setMes] =
-    useState(hoje.getMonth() + 1);
+    useState(periodoInicial.mes);
 
   const [ano, setAno] =
-    useState(hoje.getFullYear());
+    useState(periodoInicial.ano);
 
   const [quinzena, setQuinzena] =
-    useState(
-      hoje.getDate() <= 15
-        ? "01_15"
-        : "16_fim"
-    );
+    useState(periodoInicial.quinzena);
 
   const [
     dataInicioFechamento,
@@ -2244,7 +2270,8 @@ export default function Financeiro() {
     try {
       const agora = new Date();
 
-      await addDoc(
+      const repasseRef =
+        await addDoc(
         collection(db, "repasses"),
         {
           usuarioId:
@@ -2264,13 +2291,19 @@ export default function Financeiro() {
           ano,
 
           dataInicio:
-            inicioRepasse,
+            Timestamp.fromDate(
+              inicioRepasse
+            ),
 
           dataFim:
-            fimRepasse,
+            Timestamp.fromDate(
+              fimRepasse
+            ),
 
           dataPagamento:
-            agora,
+            Timestamp.fromDate(
+              agora
+            ),
 
           horaPagamento:
             agora.toLocaleTimeString(
@@ -2323,6 +2356,23 @@ export default function Financeiro() {
         }
       );
 
+      const repasseSalvo =
+        await getDoc(repasseRef);
+
+      const dadosRepasseSalvo =
+        repasseSalvo.exists()
+          ? repasseSalvo.data()
+          : null;
+
+      if (
+        !repasseSalvo.exists() ||
+        dadosRepasseSalvo?.pago !== true
+      ) {
+        throw new Error(
+          "O repasse foi criado, mas não foi possível confirmar no Firebase que pago=true."
+        );
+      }
+
       setRepasseAberto(null);
 
       await load();
@@ -2331,10 +2381,18 @@ export default function Financeiro() {
         "Pagamento confirmado com sucesso!"
       );
     } catch (e) {
-      console.error(e);
+      const mensagemErro =
+        e instanceof Error
+          ? e.message
+          : String(e);
+
+      console.error(
+        "Erro ao confirmar pagamento no Firebase:",
+        e
+      );
 
       alert(
-        "Erro ao confirmar pagamento."
+        `Erro ao confirmar pagamento: ${mensagemErro}`
       );
     } finally {
       setConfirmandoPagamento(false);

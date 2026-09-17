@@ -13,14 +13,11 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import {
   AlertTriangle,
-  Building2,
+  BarChart3,
   Camera,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
   History,
-  List,
   MapPin,
   Package,
   QrCode,
@@ -44,15 +41,7 @@ import {
 import { auth, db } from "../services/firebase/firebase";
 import { StatusPacote } from "../types";
 
-type Visualizacao = "KANBAN" | "QR" | "USUARIOS";
-
-const cols: [StatusPacote, string, string][] = [
-  ["COLETADO", "Coletados", "#c9a227"],
-  ["ROTA", "Em rota", "#2196f3"],
-  ["ENTREGUE", "Entregues", "#16a34a"],
-  ["AUSENTE", "Ausentes", "#ef4444"],
-  ["DEVOLVIDO", "Devoluções", "#6b7280"],
-];
+type Visualizacao = "QR" | "USUARIOS" | "SLA";
 
 const STATUS_FILTRO: {
   status: StatusPacote;
@@ -71,11 +60,6 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const OPERACAO_CSS = `
 .operacao-premium{min-height:100vh;background:linear-gradient(135deg,#f8fafc 0%,#eef2f7 52%,#fffdf5 100%);padding:8px 0 40px;color:#17202d}
 .operacao-premium .card{border:1px solid #e3e8ef;border-radius:18px;box-shadow:0 12px 30px rgba(25,42,65,.07);background:rgba(255,255,255,.94)}
-.operacao-premium .kanban{align-items:start;gap:16px}
-.operacao-premium .kanban-col{border:1px solid #e3e8ef;border-radius:17px;background:rgba(248,250,252,.86);padding:12px;box-shadow:0 8px 24px rgba(25,42,65,.05)}
-.operacao-premium .kanban-head{padding:5px 3px 13px;border-bottom:1px solid #e3e8ef;text-transform:uppercase;letter-spacing:.06em}
-.operacao-premium .kanban-item{background:#fff!important;border:1px solid #e6eaf0;border-left-width:4px!important;border-radius:13px!important;box-shadow:0 5px 14px rgba(25,42,65,.05);transition:transform .18s ease,box-shadow .18s ease}
-.operacao-premium .kanban-item:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(25,42,65,.1)}
 .operacao-premium button{transition:transform .18s ease,box-shadow .18s ease}
 .operacao-premium button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 16px rgba(25,42,65,.1)}
 .operacao-premium .qr-present{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 10px 28px rgba(25,42,65,.1)}
@@ -110,7 +94,7 @@ const OPERACAO_CSS = `
 .operacao-modal-foto-seta.esquerda{left:22px}
 .operacao-modal-foto-seta.direita{right:22px}
 @media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}}
-@media(max-width:850px){.operacao-premium{padding:0 0 28px}.operacao-premium .kanban{overflow-x:auto}.operacao-premium .kanban-col{min-width:245px}}
+@media(max-width:850px){.operacao-premium{padding:0 0 28px}}
 `;
 
 function usePermission() {
@@ -458,6 +442,706 @@ function pontoHistoricoOperacao(
   };
 }
 
+type MovimentoSlaOperacao = {
+  data: number;
+  status: "COLETADO" | "ROTA" | "ENTREGUE" | "AUSENTE";
+  usuario: string;
+};
+
+type DiaSlaOperacao = {
+  data: number;
+  pacotes: number;
+  rota: number;
+  entregues: number;
+  ausentes: number;
+  primeira: number | null;
+  ultima: number | null;
+  mlAte21: number;
+  mlEntre21e23: number;
+  mlApos23: number;
+};
+
+type SlaOperacao = {
+  id: string;
+  nome: string;
+  dias: Record<string, DiaSlaOperacao>;
+};
+
+function dataHistoricoOperacao(valor: any) {
+  if (valor?.toDate instanceof Function) {
+    const data = valor.toDate();
+    return data instanceof Date ? data.getTime() : null;
+  }
+
+  const timestamp = timestampMs(valor);
+  if (Number.isFinite(timestamp)) return timestamp;
+
+  if (typeof valor === "string") {
+    const parsed = Date.parse(valor);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function movimentosSlaOperacao(pacote: any): MovimentoSlaOperacao[] {
+  const fonte = pacote?.historico;
+  const itens = Array.isArray(fonte)
+    ? fonte
+    : fonte && typeof fonte === "object"
+      ? Object.values(fonte)
+      : [];
+
+  return itens
+    .filter(
+      (item): item is Record<string, any> =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        !Array.isArray(item)
+    )
+    .map((item) => {
+      const data = dataHistoricoOperacao(item.dataHora);
+      const status = String(item.status || "")
+        .trim()
+        .toUpperCase();
+      const usuario = String(
+        item.usuario ||
+          item.entregador ||
+          item.motorista ||
+          item.responsavel ||
+          ""
+      )
+        .trim()
+        .toLowerCase();
+
+      return {
+        data,
+        status,
+        usuario,
+      };
+    })
+    .filter(
+      (item): item is MovimentoSlaOperacao =>
+        item.data !== null &&
+        (item.status === "COLETADO" ||
+          item.status === "ROTA" ||
+          item.status === "ENTREGUE" ||
+          item.status === "AUSENTE")
+    )
+    .sort((a, b) => a.data - b.data);
+}
+
+function chaveDiaSlaOperacao(data: number) {
+  const d = new Date(data);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function inicioDiaSlaOperacao(valor: string) {
+  const [ano, mes, dia] = valor.split("-").map(Number);
+  return new Date(ano, mes - 1, dia).getTime();
+}
+
+function hojeSlaOperacao(offset = 0) {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  hoje.setDate(hoje.getDate() - offset);
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(hoje.getDate()).padStart(2, "0")}`;
+}
+
+function horarioSlaOperacao(data: number | null) {
+  if (data === null) return "-";
+  const d = new Date(data);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes()
+  ).padStart(2, "0")}`;
+}
+
+function dataCurtaSlaOperacao(data: number) {
+  const d = new Date(data);
+  return `${String(d.getDate()).padStart(2, "0")}/${String(
+    d.getMonth() + 1
+  ).padStart(2, "0")}`;
+}
+
+function isBaixaAutomaticaSlaOperacao(movimento: MovimentoSlaOperacao) {
+  const d = new Date(movimento.data);
+  return (
+    movimento.status === "AUSENTE" &&
+    d.getHours() === 23 &&
+    d.getMinutes() === 40
+  );
+}
+
+function isMercadoLivreSlaOperacao(pacote: any) {
+  const texto = [
+    pacote?.empresa,
+    pacote?.tipo,
+    pacote?.transportadora,
+    pacote?.origem,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+
+  return (
+    texto.includes("MERCADO LIVRE") ||
+    texto.includes("MERCADOLIVRE") ||
+    texto.includes("MELI")
+  );
+}
+
+function formatarPercentualSlaOperacao(valor: number) {
+  return `${valor.toFixed(1).replace(".", ",")}%`;
+}
+
+function valorProdutividadeSlaOperacao(
+  primeira: number | null,
+  ultima: number | null,
+  finalizados: number
+) {
+  if (primeira === null || ultima === null || finalizados === 0) {
+    return "-";
+  }
+
+  const horas = (ultima - primeira) / 3600000;
+  return horas <= 0
+    ? "-"
+    : `${(finalizados / horas).toFixed(1).replace(".", ",")}/h`;
+}
+
+function SlaOperacao({
+  items,
+  usuariosMap,
+}: {
+  items: any[];
+  usuariosMap: Record<string, string>;
+}) {
+  const [periodo, setPeriodo] = useState("7");
+  const [ini, setIni] = useState(hojeSlaOperacao(6));
+  const [fim, setFim] = useState(hojeSlaOperacao());
+  const [usuarioFiltro, setUsuarioFiltro] = useState("TODOS");
+  const [busca, setBusca] = useState("");
+  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
+
+  const dados = useMemo(() => {
+    const mapa = new Map<string, SlaOperacao>();
+
+    const obter = (id: string) => {
+      if (!mapa.has(id)) {
+        mapa.set(id, {
+          id,
+          nome: usuariosMap[id] || id || "Sem usuário",
+          dias: {},
+        });
+      }
+      return mapa.get(id)!;
+    };
+
+    items.forEach((pacote) => {
+      const movimentos = movimentosSlaOperacao(pacote);
+      if (!movimentos.length) return;
+
+      const idPacote = usuarioId(pacote);
+      const id =
+        idPacote ||
+        movimentos.find((movimento) => movimento.usuario)?.usuario ||
+        "";
+      if (!id) return;
+
+      const porDia = new Map<string, MovimentoSlaOperacao[]>();
+      movimentos.forEach((movimento) => {
+        const chave = chaveDiaSlaOperacao(movimento.data);
+        const lista = porDia.get(chave) || [];
+        lista.push(movimento);
+        porDia.set(chave, lista);
+      });
+
+      const score = obter(id);
+      porDia.forEach((movimentosDoDia, chave) => {
+        const rotas = movimentosDoDia.filter(
+          (movimento) => movimento.status === "ROTA"
+        );
+        const baixas = movimentosDoDia.filter(
+          (movimento) =>
+            movimento.status === "ENTREGUE" ||
+            movimento.status === "AUSENTE"
+        );
+
+        // COLETADO sozinho não cria um registro de SLA.
+        if (!rotas.length && !baixas.length) return;
+
+        const dia =
+          score.dias[chave] ||
+          (score.dias[chave] = {
+            data: inicioDiaSlaOperacao(chave),
+            pacotes: 0,
+            rota: 0,
+            entregues: 0,
+            ausentes: 0,
+            primeira: null,
+            ultima: null,
+            mlAte21: 0,
+            mlEntre21e23: 0,
+            mlApos23: 0,
+          });
+
+        dia.pacotes++;
+
+        if (rotas.length) {
+          dia.rota++;
+          dia.primeira =
+            dia.primeira === null
+              ? rotas[0].data
+              : Math.min(dia.primeira, rotas[0].data);
+        }
+
+        const ultimaBaixa = baixas[baixas.length - 1];
+        if (ultimaBaixa?.status === "ENTREGUE") {
+          dia.entregues++;
+        } else if (ultimaBaixa?.status === "AUSENTE") {
+          dia.ausentes++;
+        }
+
+        const baixasHumanas = baixas.filter(
+          (movimento) => !isBaixaAutomaticaSlaOperacao(movimento)
+        );
+        if (baixasHumanas.length) {
+          const ultimaHumana =
+            baixasHumanas[baixasHumanas.length - 1].data;
+          dia.ultima =
+            dia.ultima === null
+              ? ultimaHumana
+              : Math.max(dia.ultima, ultimaHumana);
+        }
+
+        if (isMercadoLivreSlaOperacao(pacote)) {
+          const entregas = movimentosDoDia.filter(
+            (movimento) => movimento.status === "ENTREGUE"
+          );
+          const ultimaEntrega = entregas[entregas.length - 1];
+          if (ultimaEntrega) {
+            const d = new Date(ultimaEntrega.data);
+            const minutos = d.getHours() * 60 + d.getMinutes();
+            if (minutos <= 21 * 60) dia.mlAte21++;
+            else if (minutos <= 23 * 60) dia.mlEntre21e23++;
+            else dia.mlApos23++;
+          }
+        }
+      });
+    });
+
+    return Array.from(mapa.values());
+  }, [items, usuariosMap]);
+
+  const usuarios = useMemo(() => {
+    const ids = new Set<string>(Object.keys(usuariosMap));
+    dados.forEach((item) => ids.add(item.id));
+    return Array.from(ids)
+      .filter(Boolean)
+      .map((id) => ({ id, nome: usuariosMap[id] || id }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [dados, usuariosMap]);
+
+  const cards = useMemo(() => {
+    const inicio = inicioDiaSlaOperacao(ini);
+    const fimData = inicioDiaSlaOperacao(fim) + 86400000 - 1;
+    const buscaNormal = busca.trim().toLowerCase();
+
+    return dados
+      .filter((score) => {
+        if (
+          usuarioFiltro !== "TODOS" &&
+          score.id !== usuarioFiltro
+        ) {
+          return false;
+        }
+        return !buscaNormal || score.nome.toLowerCase().includes(buscaNormal);
+      })
+      .map((score) => {
+        const dias = Object.values(score.dias)
+          .filter((dia) => dia.data >= inicio && dia.data <= fimData)
+          .sort((a, b) => b.data - a.data);
+        const total = dias.reduce((sum, dia) => sum + dia.pacotes, 0);
+        const rota = dias.reduce((sum, dia) => sum + dia.rota, 0);
+        const entregues = dias.reduce(
+          (sum, dia) => sum + dia.entregues,
+          0
+        );
+        const ausentes = dias.reduce(
+          (sum, dia) => sum + dia.ausentes,
+          0
+        );
+        const primeiras = dias
+          .map((dia) => dia.primeira)
+          .filter((valor): valor is number => valor !== null);
+        const ultimas = dias
+          .map((dia) => dia.ultima)
+          .filter((valor): valor is number => valor !== null);
+        const mlAte21 = dias.reduce(
+          (sum, dia) => sum + dia.mlAte21,
+          0
+        );
+        const mlEntre21e23 = dias.reduce(
+          (sum, dia) => sum + dia.mlEntre21e23,
+          0
+        );
+        const mlApos23 = dias.reduce(
+          (sum, dia) => sum + dia.mlApos23,
+          0
+        );
+
+        return {
+          ...score,
+          dias,
+          total,
+          rota,
+          entregues,
+          ausentes,
+          primeira: primeiras.length ? Math.min(...primeiras) : null,
+          ultima: ultimas.length ? Math.max(...ultimas) : null,
+          mlAte21,
+          mlEntre21e23,
+          mlApos23,
+        };
+      })
+      .filter((score) => score.total > 0)
+      .sort((a, b) => b.total - a.total);
+  }, [dados, fim, ini, busca, usuarioFiltro]);
+
+  function selecionarPeriodo(valor: string) {
+    setPeriodo(valor);
+    const hoje = hojeSlaOperacao();
+    if (valor === "hoje") {
+      setIni(hoje);
+      setFim(hoje);
+    } else if (valor === "ontem") {
+      const ontem = hojeSlaOperacao(1);
+      setIni(ontem);
+      setFim(ontem);
+    } else if (valor === "7") {
+      setIni(hojeSlaOperacao(6));
+      setFim(hoje);
+    } else if (valor === "30") {
+      setIni(hojeSlaOperacao(29));
+      setFim(hoje);
+    }
+  }
+
+  return (
+    <section>
+      <div
+        className="card"
+        style={{
+          padding: 16,
+          marginBottom: 16,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+          gap: 12,
+        }}
+      >
+        <label>
+          <span style={labelStyle}>PERÍODO</span>
+          <select
+            value={periodo}
+            onChange={(event) => selecionarPeriodo(event.target.value)}
+            style={{ width: "100%" }}
+          >
+            <option value="hoje">Hoje</option>
+            <option value="ontem">Ontem</option>
+            <option value="7">Últimos 7 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="personalizado">Período personalizado</option>
+          </select>
+        </label>
+
+        <label>
+          <span style={labelStyle}>DE</span>
+          <input
+            type="date"
+            value={ini}
+            onChange={(event) => {
+              setPeriodo("personalizado");
+              setIni(event.target.value);
+            }}
+            style={{ width: "100%" }}
+          />
+        </label>
+
+        <label>
+          <span style={labelStyle}>ATÉ</span>
+          <input
+            type="date"
+            value={fim}
+            onChange={(event) => {
+              setPeriodo("personalizado");
+              setFim(event.target.value);
+            }}
+            style={{ width: "100%" }}
+          />
+        </label>
+
+        <label>
+          <span style={labelStyle}>ENTREGADOR</span>
+          <select
+            value={usuarioFiltro}
+            onChange={(event) => setUsuarioFiltro(event.target.value)}
+            style={{ width: "100%" }}
+          >
+            <option value="TODOS">Todos</option>
+            {usuarios.map((usuario) => (
+              <option key={usuario.id} value={usuario.id}>
+                {usuario.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span style={labelStyle}>BUSCA</span>
+          <input
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            placeholder="Nome do entregador"
+            style={{ width: "100%" }}
+          />
+        </label>
+      </div>
+
+      {!cards.length ? (
+        <div className="card" style={{ padding: 24, color: "#64748b" }}>
+          Nenhum entregador com histórico no período selecionado.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 14 }}>
+          {cards.map((score) => {
+            const finalizados = score.entregues + score.ausentes;
+            const taxa = finalizados
+              ? (score.entregues / finalizados) * 100
+              : 0;
+            const aberto = Boolean(abertos[score.id]);
+
+            return (
+              <article className="card" key={score.id}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAbertos((atual) => ({
+                      ...atual,
+                      [score.id]: !atual[score.id],
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 16,
+                    border: 0,
+                    background: "transparent",
+                    color: "#111827",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <div>
+                    <strong style={{ display: "block", fontSize: 16 }}>
+                      {score.nome}
+                    </strong>
+                    <small style={{ color: "#64748b" }}>
+                      {score.id}
+                    </small>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <SlaNumero label="PACOTES" valor={score.total} cor="#c9a227" />
+                    <SlaNumero label="ENTREGUES" valor={score.entregues} cor="#16a34a" />
+                    <SlaNumero label="AUSENTES" valor={score.ausentes} cor="#ef4444" />
+                    <SlaNumero label="TAXA" valor={formatarPercentualSlaOperacao(taxa)} cor="#c9a227" />
+                  </div>
+                  <span style={{ color: "#64748b", fontSize: 20 }}>
+                    {aberto ? "−" : "+"}
+                  </span>
+                </button>
+
+                {aberto && (
+                  <div
+                    style={{
+                      borderTop: "1px solid #e5e7eb",
+                      padding: 16,
+                      display: "grid",
+                      gap: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns:
+                          "repeat(auto-fit,minmax(150px,1fr))",
+                        gap: 8,
+                      }}
+                    >
+                      <SlaInfo label="ROTA" valor={String(score.rota)} />
+                      <SlaInfo
+                        label="PRIMEIRA MOVIMENTAÇÃO"
+                        valor={horarioSlaOperacao(score.primeira)}
+                      />
+                      <SlaInfo
+                        label="ÚLTIMA BAIXA"
+                        valor={horarioSlaOperacao(score.ultima)}
+                      />
+                      <SlaInfo
+                        label="PRODUTIVIDADE"
+                        valor={valorProdutividadeSlaOperacao(
+                          score.primeira,
+                          score.ultima,
+                          finalizados
+                        )}
+                      />
+                    </div>
+
+                    <div>
+                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                        MERCADO LIVRE · CUMPRIMENTO DO PRAZO
+                      </h3>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fit,minmax(140px,1fr))",
+                          gap: 8,
+                        }}
+                      >
+                        <SlaInfo label="ATÉ 21:00" valor={String(score.mlAte21)} />
+                        <SlaInfo
+                          label="21:01–23:00"
+                          valor={String(score.mlEntre21e23)}
+                        />
+                        <SlaInfo label="APÓS 23:00" valor={String(score.mlApos23)} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                        RETORNOS
+                      </h3>
+                      <div
+                        style={{
+                          padding: 10,
+                          borderRadius: 8,
+                          background: "#f8fafc",
+                          color: "#64748b",
+                          fontSize: 12,
+                        }}
+                      >
+                        Sem informação suficiente no histórico para identificar
+                        retornos.
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                        HISTÓRICO DIÁRIO
+                      </h3>
+                      <div style={{ display: "grid", gap: 7 }}>
+                        {score.dias.map((dia) => {
+                          const diaFinalizados =
+                            dia.entregues + dia.ausentes;
+                          const diaTaxa = diaFinalizados
+                            ? (dia.entregues / diaFinalizados) * 100
+                            : 0;
+
+                          return (
+                            <div
+                              key={dia.data}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns:
+                                  "70px repeat(5,minmax(0,1fr))",
+                                gap: 7,
+                                alignItems: "center",
+                                padding: 9,
+                                borderRadius: 8,
+                                background: "#f8fafc",
+                                fontSize: 11,
+                              }}
+                            >
+                              <strong>{dataCurtaSlaOperacao(dia.data)}</strong>
+                              <span>P {dia.pacotes}</span>
+                              <span style={{ color: "#2563eb" }}>
+                                R {dia.rota}
+                              </span>
+                              <span style={{ color: "#16a34a" }}>
+                                ✓ {dia.entregues}
+                              </span>
+                              <span style={{ color: "#dc2626" }}>
+                                ! {dia.ausentes}
+                              </span>
+                              <span>{formatarPercentualSlaOperacao(diaTaxa)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SlaNumero({
+  label,
+  valor,
+  cor,
+}: {
+  label: string;
+  valor: string | number;
+  cor: string;
+}) {
+  return (
+    <span
+      style={{
+        padding: "7px 9px",
+        borderRadius: 8,
+        background: `${cor}16`,
+        color: cor,
+        fontSize: 10,
+        fontWeight: 800,
+      }}
+    >
+      {label}: {valor}
+    </span>
+  );
+}
+
+function SlaInfo({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div
+      style={{
+        padding: 10,
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        background: "#fff",
+      }}
+    >
+      <small style={{ display: "block", color: "#64748b", fontWeight: 800 }}>
+        {label}
+      </small>
+      <strong style={{ display: "block", marginTop: 4 }}>{valor}</strong>
+    </div>
+  );
+}
+
 export default function Operacao() {
   const permission = usePermission();
 
@@ -485,7 +1169,7 @@ export default function Operacao() {
     useState(true);
 
   const [visualizacao, setVisualizacao] =
-    useState<Visualizacao>("KANBAN");
+    useState<Visualizacao>("QR");
 
   const [indiceQr, setIndiceQr] = useState(0);
   const [salvando, setSalvando] =
@@ -939,13 +1623,14 @@ export default function Operacao() {
           subtitle="Controle operacional dos pacotes."
         />
 
-        <div
-          className="card"
-          style={{
-            padding: 16,
-            marginBottom: 16,
-          }}
-        >
+        {visualizacao !== "SLA" && (
+          <div
+            className="card"
+            style={{
+              padding: 16,
+              marginBottom: 16,
+            }}
+          >
           <div
             style={{
               display: "flex",
@@ -1179,7 +1864,8 @@ export default function Operacao() {
               </div>
             </div>
           )}
-        </div>
+          </div>
+        )}
 
         <div
           style={{
@@ -1189,26 +1875,6 @@ export default function Operacao() {
             marginBottom: 16,
           }}
         >
-          <button
-            onClick={() =>
-              setVisualizacao("KANBAN")
-            }
-            style={{
-              ...botao,
-              background:
-                visualizacao === "KANBAN"
-                  ? "#111827"
-                  : "#fff",
-              color:
-                visualizacao === "KANBAN"
-                  ? "#fff"
-                  : "#111827",
-            }}
-          >
-            <ClipboardCheck size={17} />
-            KANBAN
-          </button>
-
           <button
             onClick={() =>
               setVisualizacao("QR")
@@ -1248,141 +1914,32 @@ export default function Operacao() {
             <Users size={17} />
             LISTA USUÁRIO
           </button>
+
+          <button
+            onClick={() => setVisualizacao("SLA")}
+            style={{
+              ...botao,
+              background:
+                visualizacao === "SLA"
+                  ? "#111827"
+                  : "#fff",
+              color:
+                visualizacao === "SLA"
+                  ? "#fff"
+                  : "#111827",
+            }}
+          >
+            <BarChart3 size={17} />
+            SLA
+          </button>
         </div>
 
-        {!loading &&
-          visualizacao === "KANBAN" && (
-            <div
-              className="kanban"
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(5,minmax(240px,1fr))",
-              }}
-            >
-              {cols.map(
-                ([status, titulo, cor]) => {
-                  const lista = base.filter(
-                    (p) =>
-                      p.status === status
-                  );
-
-                  return (
-                    <section
-                      className="kanban-col"
-                      key={status}
-                    >
-                      <div
-                        className="kanban-head"
-                        style={{
-                          display: "flex",
-                          justifyContent:
-                            "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <b>{titulo}</b>
-
-                        <span
-                          style={{
-                            minWidth: 28,
-                            height: 28,
-                            display: "grid",
-                            placeItems: "center",
-                            borderRadius: "50%",
-                            background: cor,
-                            color: "#fff",
-                            fontWeight: 800,
-                          }}
-                        >
-                          {lista.length}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: 9,
-                          marginTop: 12,
-                        }}
-                      >
-                        {lista.map((p) => (
-                          <div
-                            className="kanban-item"
-                            key={p.id}
-                            style={{
-                              padding: 12,
-                              borderLeft: `4px solid ${cor}`,
-                            }}
-                          >
-                            <b
-                              style={{
-                                display: "block",
-                                wordBreak:
-                                  "break-word",
-                              }}
-                            >
-                              {codigoPacote(p)}
-                            </b>
-
-                            <div
-                              style={{
-                                fontSize: 11,
-                                marginTop: 5,
-                                color: "#6b7280",
-                              }}
-                            >
-                              <Building2 size={12} />
-                              {" "}
-                              {p.empresa || "-"}
-                            </div>
-
-                            <div
-                              style={{
-                                fontSize: 11,
-                                marginTop: 5,
-                                color: "#6b7280",
-                              }}
-                            >
-                              <User size={12} />
-                              {" "}
-                              {nomeUsuario(
-                                p,
-                                usuariosMap
-                              )}
-                            </div>
-
-                            <div
-                              style={{
-                                marginTop: 8,
-                              }}
-                            >
-                              <StatusBadge
-                                status={p.status}
-                              />
-                            </div>
-                          </div>
-                        ))}
-
-                        {!lista.length && (
-                          <div
-                            style={{
-                              padding: 20,
-                              color: "#9ca3af",
-                              textAlign: "center",
-                              fontSize: 12,
-                            }}
-                          >
-                            Nenhum pacote.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  );
-                }
-              )}
-            </div>
-          )}
+        {!loading && visualizacao === "SLA" && (
+          <SlaOperacao
+            items={items}
+            usuariosMap={usuariosMap}
+          />
+        )}
 
         {!loading &&
           visualizacao === "QR" && (

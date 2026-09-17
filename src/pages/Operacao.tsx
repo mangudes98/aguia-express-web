@@ -93,6 +93,17 @@ const OPERACAO_CSS = `
 .operacao-modal-foto-fechar{top:20px;right:22px}
 .operacao-modal-foto-seta.esquerda{left:22px}
 .operacao-modal-foto-seta.direita{right:22px}
+.sla-operacao{color:#0f172a}
+.sla-operacao .sla-filtros{border-color:#cbd5e1;background:#fff;box-shadow:0 10px 24px rgba(15,23,42,.08)}
+.sla-operacao .sla-filtros label>span{color:#334155!important;letter-spacing:.02em}
+.sla-operacao input,.sla-operacao select{box-sizing:border-box;min-height:42px;padding:9px 10px;border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#0f172a;font-weight:600}
+.sla-operacao input:focus,.sla-operacao select:focus{outline:3px solid rgba(37,99,235,.16);border-color:#2563eb}
+.sla-operacao .sla-score-card{border-color:#cbd5e1;box-shadow:0 10px 24px rgba(15,23,42,.08)}
+.sla-operacao .sla-score-toggle{min-height:82px}
+.sla-operacao .sla-detalhes{border-color:#cbd5e1!important;background:#f8fafc}
+.sla-operacao .sla-titulo-secao{margin:0 0 8px;color:#0f172a;font-size:13px;letter-spacing:.02em}
+.sla-operacao .sla-retornos{border:1px solid #cbd5e1;background:#f1f5f9;color:#475569}
+.sla-operacao .sla-dia{border:1px solid #dbe4ee;background:#fff;color:#1e293b}
 @media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}}
 `;
@@ -834,9 +845,9 @@ function SlaOperacao({
   }
 
   return (
-    <section>
+    <section className="sla-operacao">
       <div
-        className="card"
+        className="card sla-filtros"
         style={{
           padding: 16,
           marginBottom: 16,
@@ -927,7 +938,7 @@ function SlaOperacao({
             const aberto = Boolean(abertos[score.id]);
 
             return (
-              <article className="card" key={score.id}>
+              <article className="card sla-score-card" key={score.id}>
                 <button
                   type="button"
                   onClick={() =>
@@ -936,6 +947,7 @@ function SlaOperacao({
                       [score.id]: !atual[score.id],
                     }))
                   }
+                  className="sla-score-toggle"
                   style={{
                     width: "100%",
                     padding: 16,
@@ -971,6 +983,7 @@ function SlaOperacao({
 
                 {aberto && (
                   <div
+                    className="sla-detalhes"
                     style={{
                       borderTop: "1px solid #e5e7eb",
                       padding: 16,
@@ -1006,7 +1019,7 @@ function SlaOperacao({
                     </div>
 
                     <div>
-                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                      <h3 className="sla-titulo-secao">
                         MERCADO LIVRE · CUMPRIMENTO DO PRAZO
                       </h3>
                       <div
@@ -1027,15 +1040,16 @@ function SlaOperacao({
                     </div>
 
                     <div>
-                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                      <h3 className="sla-titulo-secao">
                         RETORNOS
                       </h3>
                       <div
+                        className="sla-retornos"
                         style={{
                           padding: 10,
                           borderRadius: 8,
-                          background: "#f8fafc",
-                          color: "#64748b",
+                          background: "#f1f5f9",
+                          color: "#475569",
                           fontSize: 12,
                         }}
                       >
@@ -1045,7 +1059,7 @@ function SlaOperacao({
                     </div>
 
                     <div>
-                      <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+                      <h3 className="sla-titulo-secao">
                         HISTÓRICO DIÁRIO
                       </h3>
                       <div style={{ display: "grid", gap: 7 }}>
@@ -1059,6 +1073,7 @@ function SlaOperacao({
                           return (
                             <div
                               key={dia.data}
+                              className="sla-dia"
                               style={{
                                 display: "grid",
                                 gridTemplateColumns:
@@ -1067,7 +1082,7 @@ function SlaOperacao({
                                 alignItems: "center",
                                 padding: 9,
                                 borderRadius: 8,
-                                background: "#f8fafc",
+                                background: "#fff",
                                 fontSize: 11,
                               }}
                             >
@@ -1114,9 +1129,11 @@ function SlaNumero({
         padding: "7px 9px",
         borderRadius: 8,
         background: `${cor}16`,
+        border: `1px solid ${cor}55`,
         color: cor,
         fontSize: 10,
         fontWeight: 800,
+        whiteSpace: "nowrap",
       }}
     >
       {label}: {valor}
@@ -1129,12 +1146,13 @@ function SlaInfo({ label, valor }: { label: string; valor: string }) {
     <div
       style={{
         padding: 10,
-        border: "1px solid #e5e7eb",
+        border: "1px solid #cbd5e1",
         borderRadius: 8,
         background: "#fff",
+        color: "#0f172a",
       }}
     >
-      <small style={{ display: "block", color: "#64748b", fontWeight: 800 }}>
+      <small style={{ display: "block", color: "#475569", fontWeight: 800 }}>
         {label}
       </small>
       <strong style={{ display: "block", marginTop: 4 }}>{valor}</strong>

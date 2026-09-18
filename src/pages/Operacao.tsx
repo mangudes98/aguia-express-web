@@ -465,6 +465,9 @@ type DiaSlaOperacao = {
   rota: number;
   entregues: number;
   ausentes: number;
+  retornos: number;
+  retornaramParaRota: number;
+  retornosPosteriormenteEntregues: number;
   primeira: number | null;
   ultima: number | null;
   mlAte21: number;
@@ -695,6 +698,9 @@ function SlaOperacao({
             rota: 0,
             entregues: 0,
             ausentes: 0,
+            retornos: 0,
+            retornaramParaRota: 0,
+            retornosPosteriormenteEntregues: 0,
             primeira: null,
             ultima: null,
             mlAte21: 0,
@@ -704,12 +710,46 @@ function SlaOperacao({
 
         dia.pacotes++;
 
+        const dataAnterior = new Date(inicioDiaSlaOperacao(chave));
+        dataAnterior.setDate(dataAnterior.getDate() - 1);
+        const chaveDiaAnterior = chaveDiaSlaOperacao(
+          dataAnterior.getTime()
+        );
+        const ausenteNoDiaAnterior = movimentos.some(
+          (movimento) =>
+            chaveDiaSlaOperacao(movimento.data) === chaveDiaAnterior &&
+            movimento.status === "AUSENTE"
+        );
+        const teveEntregueHoje = movimentosDoDia.some(
+          (movimento) => movimento.status === "ENTREGUE"
+        );
+
+        // TOTAL: AUSENTE no dia anterior e uma nova movimentação de ROTA ou
+        // ENTREGUE no dia atual. Conta uma vez por código/dia.
+        if (
+          ausenteNoDiaAnterior &&
+          (rotas.length > 0 || teveEntregueHoje)
+        ) {
+          dia.retornos++;
+        }
+
         if (rotas.length) {
           dia.rota++;
           dia.primeira =
             dia.primeira === null
               ? rotas[0].data
               : Math.min(dia.primeira, rotas[0].data);
+
+          // VOLTARAM À ROTA: AUSENTE no dia anterior e ROTA no dia atual.
+          if (ausenteNoDiaAnterior) {
+            dia.retornaramParaRota++;
+          }
+        }
+
+        // POST. ENTREGUES: AUSENTE no dia anterior e ENTREGUE em qualquer
+        // momento do dia atual, com ou sem passagem por ROTA.
+        if (ausenteNoDiaAnterior && teveEntregueHoje) {
+          dia.retornosPosteriormenteEntregues++;
         }
 
         const ultimaBaixa = baixas[baixas.length - 1];
@@ -788,6 +828,18 @@ function SlaOperacao({
           (sum, dia) => sum + dia.ausentes,
           0
         );
+        const retornos = dias.reduce(
+          (sum, dia) => sum + dia.retornos,
+          0
+        );
+        const retornaramParaRota = dias.reduce(
+          (sum, dia) => sum + dia.retornaramParaRota,
+          0
+        );
+        const retornosPosteriormenteEntregues = dias.reduce(
+          (sum, dia) => sum + dia.retornosPosteriormenteEntregues,
+          0
+        );
         const primeiras = dias
           .map((dia) => dia.primeira)
           .filter((valor): valor is number => valor !== null);
@@ -814,6 +866,9 @@ function SlaOperacao({
           rota,
           entregues,
           ausentes,
+          retornos,
+          retornaramParaRota,
+          retornosPosteriormenteEntregues,
           primeira: primeiras.length ? Math.min(...primeiras) : null,
           ultima: ultimas.length ? Math.max(...ultimas) : null,
           mlAte21,
@@ -1046,15 +1101,28 @@ function SlaOperacao({
                       <div
                         className="sla-retornos"
                         style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(3,minmax(0,1fr))",
+                          gap: 8,
                           padding: 10,
                           borderRadius: 8,
-                          background: "#f1f5f9",
-                          color: "#475569",
-                          fontSize: 12,
                         }}
                       >
-                        Sem informação suficiente no histórico para identificar
-                        retornos.
+                        <SlaInfo
+                          label="TOTAL"
+                          valor={String(score.retornos)}
+                        />
+                        <SlaInfo
+                          label="VOLTARAM À ROTA"
+                          valor={String(score.retornaramParaRota)}
+                        />
+                        <SlaInfo
+                          label="POST. ENTREGUES"
+                          valor={String(
+                            score.retornosPosteriormenteEntregues
+                          )}
+                        />
                       </div>
                     </div>
 
@@ -1098,6 +1166,26 @@ function SlaOperacao({
                                 ! {dia.ausentes}
                               </span>
                               <span>{formatarPercentualSlaOperacao(diaTaxa)}</span>
+                              <div
+                                style={{
+                                  gridColumn: "1 / -1",
+                                  display: "grid",
+                                  gridTemplateColumns:
+                                    "repeat(3,minmax(0,1fr))",
+                                  gap: 7,
+                                  paddingTop: 6,
+                                  borderTop: "1px solid #e5e7eb",
+                                }}
+                              >
+                                <span>RETORNOS {dia.retornos}</span>
+                                <span>
+                                  VOLTARAM À ROTA {dia.retornaramParaRota}
+                                </span>
+                                <span>
+                                  POST. ENTREGUES{" "}
+                                  {dia.retornosPosteriormenteEntregues}
+                                </span>
+                              </div>
                             </div>
                           );
                         })}

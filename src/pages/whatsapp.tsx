@@ -106,6 +106,7 @@ type CadastroEntregador = {
   numero?: string;
 
   regiaoNome?: string;
+  regiaoId?: string;
 
   telefone?: string;
   telefoneContato?: string;
@@ -114,6 +115,7 @@ type CadastroEntregador = {
   pix?: string;
   banco?: string;
   favorecido?: string;
+  confirmacaoPendente?: boolean;
 
   criadoEm?: ValorData;
   atualizadoEm?: ValorData;
@@ -1435,6 +1437,24 @@ export default function WhatsApp() {
           line-height: 1.55;
         }
 
+        .aw-message-role {
+          margin-bottom: 4px;
+
+          font-size: 8px;
+          font-weight: 700;
+          letter-spacing: .02em;
+          opacity: .7;
+        }
+
+        .aw-message-media {
+          margin-top: 5px;
+
+          font-size: 8px;
+          line-height: 1.35;
+          opacity: .75;
+          word-break: break-word;
+        }
+
         .aw-message-image {
           display: block;
 
@@ -2485,6 +2505,12 @@ export default function WhatsApp() {
                               }
                             >
 
+                              <div className="aw-message-role">
+                                {ehAssistente
+                                  ? "IA / Assistente"
+                                  : "Cliente"}
+                              </div>
+
                               {imagem && (
                                 <img
                                   src={imagem}
@@ -2513,6 +2539,13 @@ export default function WhatsApp() {
                                       "Mensagem"}
                                   </div>
                                 )}
+
+                              {mensagem.mediaId && (
+                                <div className="aw-message-media">
+                                  Mídia: {mensagem.tipo || "arquivo"} · ID:{" "}
+                                  {mensagem.mediaId}
+                                </div>
+                              )}
 
                               <div className="aw-message-time">
                                 {formatarHora(
@@ -2761,6 +2794,17 @@ export default function WhatsApp() {
 
                   <div className="aw-detail-card">
                     <div className="aw-detail-label">
+                      WhatsApp
+                    </div>
+                    <div className="aw-detail-value">
+                      {formatarNumero(
+                        colaboradorSelecionado.numeroWhatsApp
+                      ) || "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
                       CEP
                     </div>
                     <div className="aw-detail-value">
@@ -2786,6 +2830,16 @@ export default function WhatsApp() {
                     </div>
                     <div className="aw-detail-value">
                       {colaboradorSelecionado.regiaoNome ||
+                        "—"}
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Região ID
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.regiaoId ||
                         "—"}
                     </div>
                   </div>
@@ -2844,6 +2898,21 @@ export default function WhatsApp() {
                         {colaboradorSelecionado.status ||
                           "CADASTRO"}
                       </span>
+                    </div>
+                  </div>
+
+                  <div className="aw-detail-card">
+                    <div className="aw-detail-label">
+                      Confirmação pendente
+                    </div>
+                    <div className="aw-detail-value">
+                      {colaboradorSelecionado.confirmacaoPendente ===
+                      true
+                        ? "Sim"
+                        : colaboradorSelecionado.confirmacaoPendente ===
+                            false
+                          ? "Não"
+                          : "—"}
                     </div>
                   </div>
 

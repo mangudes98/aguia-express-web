@@ -762,9 +762,15 @@ function SlaOperacao({
         const baixasHumanas = baixas.filter(
           (movimento) => !isBaixaAutomaticaSlaOperacao(movimento)
         );
-        if (baixasHumanas.length) {
+        const baixasAntesDas2345 = baixasHumanas.filter((movimento) => {
+          const data = new Date(movimento.data);
+          return !(data.getHours() === 23 && data.getMinutes() === 45);
+        });
+        const baixasParaUltima =
+          baixasAntesDas2345.length > 0 ? baixasAntesDas2345 : baixasHumanas;
+        if (baixasParaUltima.length) {
           const ultimaHumana =
-            baixasHumanas[baixasHumanas.length - 1].data;
+            baixasParaUltima[baixasParaUltima.length - 1].data;
           dia.ultima =
             dia.ultima === null
               ? ultimaHumana

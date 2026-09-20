@@ -140,9 +140,13 @@ const OPERACAO_CSS = `
 .sla-operacao .sla-card-rodape{display:flex;align-items:center;justify-content:space-between;padding-top:2px;color:#2563eb;font-size:10px;font-weight:900;letter-spacing:.04em}
 .sla-operacao .sla-card-rodape span:last-child{font-size:17px;line-height:1}
 .sla-operacao .sla-detalhes-painel{margin-top:16px;padding:20px;border-color:#b9d0e5;background:linear-gradient(180deg,#fff,#f8fbfe);box-shadow:0 14px 30px rgba(15,23,42,.09)}
+.sla-operacao .sla-detalhes-modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgba(15,23,42,.58);backdrop-filter:blur(4px);overflow:auto}
+.sla-operacao .sla-detalhes-modal .sla-detalhes-painel{width:min(980px,100%);max-height:calc(100vh - 48px);margin:0;overflow:auto;box-shadow:0 24px 70px rgba(15,23,42,.28)}
 .sla-operacao .sla-detalhes-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .sla-operacao .sla-detalhes-cabecalho h2{margin:0;color:#0f172a;font-size:17px}
 .sla-operacao .sla-detalhes-cabecalho span{color:#64748b;font-size:11px}
+.sla-operacao .sla-detalhes-fechar{display:grid;place-items:center;width:34px;height:34px;flex:0 0 auto;border:1px solid #dbe4ee;border-radius:10px;background:#fff;color:#64748b;cursor:pointer}
+.sla-operacao .sla-detalhes-fechar:hover{background:#eff6ff;color:#2563eb}
 .sla-operacao .sla-detalhes{display:grid;gap:18px}
 .sla-operacao .sla-detalhes-indicadores,.sla-operacao .sla-detalhes-mercado,.sla-operacao .sla-retornos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
 .sla-operacao .sla-detalhes-mercado{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -154,7 +158,7 @@ const OPERACAO_CSS = `
 .sla-operacao .sla-vazio{padding:28px;text-align:center;color:#64748b}
 @media(max-width:1100px){.sla-operacao .sla-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}.sla-operacao .sla-resumo-indicadores{grid-template-columns:repeat(3,minmax(0,1fr))}.sla-operacao .sla-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}.sla-operacao .sla-resumo{padding:16px}.sla-operacao .sla-resumo-cabecalho{display:block}.sla-operacao .sla-resumo-indicadores{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-indicador.produtividade{grid-column:auto}.sla-operacao .sla-mercado-geral,.sla-operacao .sla-detalhes-mercado{grid-template-columns:1fr}.sla-operacao .sla-cards-grid{grid-template-columns:1fr}.sla-operacao .sla-detalhes-indicadores,.sla-operacao .sla-retornos{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-historico-cabecalho{display:none}.sla-operacao .sla-dia{grid-template-columns:repeat(3,minmax(0,1fr))!important}.sla-operacao .sla-historico-extra{grid-template-columns:1fr}.sla-operacao .sla-detalhes-painel{padding:14px}}
+@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}.sla-operacao .sla-resumo{padding:16px}.sla-operacao .sla-resumo-cabecalho{display:block}.sla-operacao .sla-resumo-indicadores{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-indicador.produtividade{grid-column:auto}.sla-operacao .sla-mercado-geral,.sla-operacao .sla-detalhes-mercado{grid-template-columns:1fr}.sla-operacao .sla-cards-grid{grid-template-columns:1fr}.sla-operacao .sla-detalhes-indicadores,.sla-operacao .sla-retornos{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-historico-cabecalho{display:none}.sla-operacao .sla-dia{grid-template-columns:repeat(3,minmax(0,1fr))!important}.sla-operacao .sla-historico-extra{grid-template-columns:1fr}.sla-operacao .sla-detalhes-painel{padding:14px}.sla-operacao .sla-detalhes-modal{padding:10px}.sla-operacao .sla-detalhes-modal .sla-detalhes-painel{max-height:calc(100vh - 20px)}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}}
 `;
 
@@ -1088,12 +1092,31 @@ function SlaOperacao({
           </div>
 
           {selecionado && (
-            <section className="card sla-detalhes-painel">
+            <div
+              className="sla-detalhes-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Detalhes de ${selecionado.nome}`}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setSelecionadoId(null);
+                }
+              }}
+            >
+              <section className="card sla-detalhes-painel">
               <div className="sla-detalhes-cabecalho">
                 <div>
                   <h2>DETALHES DE {selecionado.nome}</h2>
                   <span>{selecionado.id}</span>
                 </div>
+                 <button
+                   type="button"
+                   className="sla-detalhes-fechar"
+                   aria-label="Fechar detalhes"
+                   onClick={() => setSelecionadoId(null)}
+                 >
+                   <X size={18} />
+                 </button>
               </div>
               <div className="sla-detalhes">
                 <div className="sla-detalhes-indicadores">
@@ -1147,7 +1170,8 @@ function SlaOperacao({
                   </div>
                 </div>
               </div>
-            </section>
+              </section>
+            </div>
           )}
         </>
       )}

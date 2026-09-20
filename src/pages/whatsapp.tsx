@@ -42,10 +42,13 @@ import { db } from "../services/firebase/firebase";
 type ValorData = Timestamp | Date | string | unknown;
 
 type Mensagem = {
-  papel?: "cliente" | "assistente" | string;
+  papel?: "cliente" | "assistente" | "sistema" | string;
   texto?: string;
   tipo?: string;
   em?: ValorData;
+  messageId?: string;
+  origem?: string;
+  mediaId?: string;
 
   url?: string;
   mediaUrl?: string;
@@ -71,6 +74,9 @@ type Conversa = {
   numero?: string;
   nome?: string;
   mensagens?: Mensagem[];
+  ultimaMensagem?: string;
+  quantidadeMensagens?: number;
+  status?: string;
 
   atendimentoHumano?: boolean;
   atendimentoHumanoEm?: ValorData;
@@ -283,6 +289,29 @@ function statusClasse(status?: string) {
   return "neutral";
 }
 
+function obterMensagensConversa(
+  conversa: Conversa,
+  historicos: Record<string, Mensagem[]>
+) {
+  return (
+    historicos[conversa.id] ||
+    conversa.mensagens ||
+    []
+  );
+}
+
+function ordenarPorDataDesc(
+  primeiro?: ValorData,
+  segundo?: ValorData
+) {
+  const primeiroTempo =
+    converterData(primeiro)?.getTime() || 0;
+  const segundoTempo =
+    converterData(segundo)?.getTime() || 0;
+
+  return segundoTempo - primeiroTempo;
+}
+
 // ============================================================
 // COMPONENTE
 // ============================================================
@@ -299,6 +328,8 @@ export default function WhatsApp() {
   // ==========================================================
 
   const [conversas, setConversas] = useState<Conversa[]>([]);
+  const [historicos, setHistoricos] =
+    useState<Record<string, Mensagem[]>>({});
   const [selecionada, setSelecionada] =
     useState<Conversa | null>(null);
 
@@ -352,13 +383,8 @@ export default function WhatsApp() {
       "whatsapp_conversas"
     );
 
-    const consulta = query(
-      referencia,
-      orderBy("atualizadoEm", "desc")
-    );
-
     return onSnapshot(
-      consulta,
+      referencia,
       (snapshot) => {
         const lista: Conversa[] =
           snapshot.docs.map((item) => ({
@@ -367,7 +393,12 @@ export default function WhatsApp() {
               Conversa,
               "id"
             >),
-          }));
+          })).sort((a, b) =>
+            ordenarPorDataDesc(
+              a.atualizadoEm || a.criadoEm,
+              b.atualizadoEm || b.criadoEm
+            )
+          );
 
         setConversas(lista);
 
@@ -397,6 +428,70 @@ export default function WhatsApp() {
       }
     );
   }, []);
+
+  // ==========================================================
+  // FIREBASE — HISTÓRICO COMPLETO DAS CONVERSAS
+  // ==========================================================
+
+  const idsConversas = useMemo(
+    () =>
+      conversas
+        .map((conversa) => conversa.id)
+        .sort()
+        .join("|"),
+    [conversas]
+  );
+
+  useEffect(() => {
+    const ids = idsConversas
+      ? idsConversas.split("|").filter(Boolean)
+      : [];
+
+    if (ids.length === 0) {
+      setHistoricos({});
+      return undefined;
+    }
+
+    const cancelamentos = ids.map((id) => {
+      const referencia = collection(
+        db,
+        "whatsapp_conversas",
+        id,
+        "mensagens"
+      );
+
+      return onSnapshot(
+        referencia,
+        (snapshot) => {
+          const mensagens = snapshot.docs
+            .map((item) => item.data() as Mensagem)
+            .sort((a, b) => {
+              const tempoA =
+                converterData(a.em)?.getTime() || 0;
+              const tempoB =
+                converterData(b.em)?.getTime() || 0;
+
+              return tempoA - tempoB;
+            });
+
+          setHistoricos((atual) => ({
+            ...atual,
+            [id]: mensagens,
+          }));
+        },
+        (error) => {
+          console.error(
+            `Erro ao carregar histórico da conversa ${id}:`,
+            error
+          );
+        }
+      );
+    });
+
+    return () => {
+      cancelamentos.forEach((cancelar) => cancelar());
+    };
+  }, [idsConversas]);
 
   // ==========================================================
   // FIREBASE — COLABORADORES
@@ -529,14 +624,37 @@ export default function WhatsApp() {
         conversa.mensagens?.[
           conversa.mensagens.length - 1
         ]?.texto?.toLowerCase() || "";
+      const historico =
+        obterMensagensConversa(
+          conversa,
+          historicos
+        );
+      const textosHistorico = historico
+        .map((mensagem) =>
+          String(mensagem.texto || "")
+        )
+        .join(" ")
+        .toLowerCase();
+      const dadosRelacionados = [
+        conversa.ultimoCodigo,
+        conversa.status,
+        conversa.ultimaMensagem,
+        conversa.parceiro?.nomeEmpresa,
+        conversa.parceiro?.nomeResponsavel,
+      ]
+        .map((valor) => String(valor || ""))
+        .join(" ")
+        .toLowerCase();
 
       return (
         nome.includes(termo) ||
         numero.includes(termo) ||
-        ultimaMensagem.includes(termo)
+        ultimaMensagem.includes(termo) ||
+        textosHistorico.includes(termo) ||
+        dadosRelacionados.includes(termo)
       );
     });
-  }, [conversas, buscaChat]);
+  }, [conversas, historicos, buscaChat]);
 
   // ==========================================================
   // FILTRO — COLABORADORES
@@ -2183,10 +2301,20 @@ export default function WhatsApp() {
                 conversasFiltradas.map(
                   (conversa) => {
 
+                    const mensagensConversa =
+                      obterMensagensConversa(
+                        conversa,
+                        historicos
+                      );
                     const ultima =
-                      conversa.mensagens?.[
-                        conversa.mensagens.length - 1
+                      mensagensConversa[
+                        mensagensConversa.length - 1
                       ];
+                    const quantidade =
+                      conversa.quantidadeMensagens ??
+                      (historicos[conversa.id]
+                        ? mensagensConversa.length
+                        : 0);
 
                     return (
                       <button
@@ -2235,7 +2363,17 @@ export default function WhatsApp() {
 
                           <div className="aw-conversation-last">
                             {ultima?.texto ||
+                              conversa.ultimaMensagem ||
                               "Sem mensagens"}
+                          </div>
+
+                          <div className="aw-conversation-number">
+                            {quantidade > 0
+                              ? `${quantidade} mensagens`
+                              : ""}
+                            {conversa.status
+                              ? ` · ${conversa.status}`
+                              : ""}
                           </div>
 
                           {conversa.atendimentoHumano && (
@@ -2312,7 +2450,8 @@ export default function WhatsApp() {
 
                   <div className="aw-messages-inner">
 
-                    {(selecionada.mensagens ||
+                    {(historicos[selecionada.id] ||
+                      selecionada.mensagens ||
                       []).map(
                       (mensagem, index) => {
 
@@ -2327,7 +2466,10 @@ export default function WhatsApp() {
 
                         return (
                           <div
-                            key={`${selecionada.id}-${index}`}
+                            key={
+                              mensagem.messageId ||
+                              `${selecionada.id}-${index}`
+                            }
                             className={
                               ehAssistente
                                 ? "aw-message-row assistant"

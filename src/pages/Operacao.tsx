@@ -94,17 +94,67 @@ const OPERACAO_CSS = `
 .operacao-modal-foto-seta.esquerda{left:22px}
 .operacao-modal-foto-seta.direita{right:22px}
 .sla-operacao{color:#0f172a}
-.sla-operacao .sla-filtros{border-color:#cbd5e1;background:#fff;box-shadow:0 10px 24px rgba(15,23,42,.08)}
-.sla-operacao .sla-filtros label>span{color:#334155!important;letter-spacing:.02em}
-.sla-operacao input,.sla-operacao select{box-sizing:border-box;min-height:42px;padding:9px 10px;border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#0f172a;font-weight:600}
+.sla-operacao .sla-filtros{border-color:#d9e2ec;background:rgba(255,255,255,.96);box-shadow:0 10px 24px rgba(15,23,42,.07)}
+.sla-operacao .sla-filtros label>span{color:#334155!important;letter-spacing:.06em}
+.sla-operacao input,.sla-operacao select{box-sizing:border-box;min-height:42px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f172a;font-weight:600}
 .sla-operacao input:focus,.sla-operacao select:focus{outline:3px solid rgba(37,99,235,.16);border-color:#2563eb}
-.sla-operacao .sla-score-card{border-color:#cbd5e1;box-shadow:0 10px 24px rgba(15,23,42,.08)}
-.sla-operacao .sla-score-toggle{min-height:82px}
-.sla-operacao .sla-detalhes{border-color:#cbd5e1!important;background:#f8fafc}
-.sla-operacao .sla-titulo-secao{margin:0 0 8px;color:#0f172a;font-size:13px;letter-spacing:.02em}
-.sla-operacao .sla-retornos{border:1px solid #cbd5e1;background:#f1f5f9;color:#475569}
+.sla-operacao .sla-resumo{padding:20px;background:linear-gradient(135deg,#0f2742,#173f63 58%,#1d5272);border:0;color:#fff;box-shadow:0 16px 32px rgba(15,39,66,.18)}
+.sla-operacao .sla-resumo-cabecalho{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+.sla-operacao .sla-resumo-titulo{margin:0;color:#fff;font-size:15px;letter-spacing:.04em}
+.sla-operacao .sla-resumo-subtitulo{margin:5px 0 0;color:#b8c9d9;font-size:11px}
+.sla-operacao .sla-resumo-indicadores{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.sla-operacao .sla-indicador{min-width:0;padding:13px 14px;border:1px solid rgba(255,255,255,.13);border-radius:13px;background:rgba(255,255,255,.09)}
+.sla-operacao .sla-indicador-label{display:flex;align-items:center;gap:6px;color:#c5d5e3;font-size:10px;font-weight:800;letter-spacing:.06em}
+.sla-operacao .sla-indicador-valor{display:block;margin-top:7px;color:#fff;font-size:25px;line-height:1;font-weight:900}
+.sla-operacao .sla-indicador.pacotes .sla-indicador-label{color:#8bd1ff}
+.sla-operacao .sla-indicador.entregues .sla-indicador-label{color:#8ce5b2}
+.sla-operacao .sla-indicador.ausentes .sla-indicador-label{color:#ffacb1}
+.sla-operacao .sla-indicador.sla .sla-indicador-label{color:#f6d77e}
+.sla-operacao .sla-indicador.produtividade .sla-indicador-label{color:#d5b7ff}
+.sla-operacao .sla-subsecao-titulo{margin:20px 0 10px;color:#dce9f4;font-size:10px;letter-spacing:.1em}
+.sla-operacao .sla-mercado-geral{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sla-operacao .sla-mercado-item{padding:11px 13px;border-radius:12px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.11)}
+.sla-operacao .sla-mercado-item span{display:block;color:#b8c9d9;font-size:10px;font-weight:800}
+.sla-operacao .sla-mercado-item strong{display:block;margin-top:5px;color:#fff;font-size:22px}
+.sla-operacao .sla-entregadores-titulo{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:22px 2px 10px}
+.sla-operacao .sla-entregadores-titulo h2{margin:0;color:#0f172a;font-size:15px;letter-spacing:.04em}
+.sla-operacao .sla-entregadores-titulo span{color:#64748b;font-size:11px}
+.sla-operacao .sla-cards-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.sla-operacao .sla-score-card{min-width:0;overflow:hidden;border-color:#dbe4ee;box-shadow:0 10px 24px rgba(15,23,42,.07);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.sla-operacao .sla-score-card:hover{transform:translateY(-3px);box-shadow:0 16px 30px rgba(15,23,42,.12);border-color:#9bb8d2}
+.sla-operacao .sla-score-card.selecionado{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12),0 16px 30px rgba(15,23,42,.12)}
+.sla-operacao .sla-score-toggle{min-height:218px;height:100%;padding:17px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:13px}
+.sla-operacao .sla-score-cabecalho{display:flex;align-items:center;gap:10px}
+.sla-operacao .sla-avatar{display:grid;place-items:center;width:36px;height:36px;flex:0 0 auto;border-radius:11px;background:#e4f2fb;color:#17628a}
+.sla-operacao .sla-score-nome{min-width:0;color:#0f172a;font-size:15px;line-height:1.15}
+.sla-operacao .sla-score-id{display:block;margin-top:3px;overflow:hidden;color:#94a3b8;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.sla-operacao .sla-card-metricas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto}
+.sla-operacao .sla-card-metrica{padding:9px 10px;border-radius:10px;background:#f8fafc;text-align:left}
+.sla-operacao .sla-card-metrica small{display:block;color:#64748b;font-size:9px;font-weight:800;letter-spacing:.04em}
+.sla-operacao .sla-card-metrica strong{display:block;margin-top:4px;font-size:18px;line-height:1}
+.sla-operacao .sla-card-metrica.pacotes{background:#eff8ff;color:#17628a}
+.sla-operacao .sla-card-metrica.entregues{background:#ecfdf3;color:#15803d}
+.sla-operacao .sla-card-metrica.ausentes{background:#fff1f2;color:#dc2626}
+.sla-operacao .sla-card-metrica.sla{background:#fffbeb;color:#a16207}
+.sla-operacao .sla-card-metrica.produtividade{grid-column:1/-1;background:#f5f3ff;color:#6d28d9}
+.sla-operacao .sla-card-rodape{display:flex;align-items:center;justify-content:space-between;padding-top:2px;color:#2563eb;font-size:10px;font-weight:900;letter-spacing:.04em}
+.sla-operacao .sla-card-rodape span:last-child{font-size:17px;line-height:1}
+.sla-operacao .sla-detalhes-painel{margin-top:16px;padding:20px;border-color:#b9d0e5;background:linear-gradient(180deg,#fff,#f8fbfe);box-shadow:0 14px 30px rgba(15,23,42,.09)}
+.sla-operacao .sla-detalhes-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sla-operacao .sla-detalhes-cabecalho h2{margin:0;color:#0f172a;font-size:17px}
+.sla-operacao .sla-detalhes-cabecalho span{color:#64748b;font-size:11px}
+.sla-operacao .sla-detalhes{display:grid;gap:18px}
+.sla-operacao .sla-detalhes-indicadores,.sla-operacao .sla-detalhes-mercado,.sla-operacao .sla-retornos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.sla-operacao .sla-detalhes-mercado{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sla-operacao .sla-titulo-secao{margin:0 0 9px;color:#334155;font-size:11px;letter-spacing:.08em}
+.sla-operacao .sla-retornos{padding:10px;border:1px solid #dbe4ee;background:#f1f5f9;color:#475569}
 .sla-operacao .sla-dia{border:1px solid #dbe4ee;background:#fff;color:#1e293b}
-@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}}
+.sla-operacao .sla-historico-cabecalho{display:grid;grid-template-columns:75px repeat(5,minmax(0,1fr));gap:8px;padding:0 10px 6px;color:#94a3b8;font-size:9px;font-weight:900;letter-spacing:.04em}
+.sla-operacao .sla-historico-extra{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding-top:7px;border-top:1px solid #e5e7eb;color:#64748b;font-size:10px;font-weight:700}
+.sla-operacao .sla-vazio{padding:28px;text-align:center;color:#64748b}
+@media(max-width:1100px){.sla-operacao .sla-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:850px){.operacao-premium{padding:0 0 28px}.sla-operacao .sla-resumo-indicadores{grid-template-columns:repeat(3,minmax(0,1fr))}.sla-operacao .sla-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.comprovante-operacao-linha{grid-template-columns:1fr}.comprovante-operacao-secao{border-right:0;border-bottom:1px solid #edf0f3}.comprovante-operacao-secao:last-child{border-bottom:0}.comprovante-operacao-info,.comprovante-operacao-endereco-grid{grid-template-columns:1fr}.sla-operacao .sla-resumo{padding:16px}.sla-operacao .sla-resumo-cabecalho{display:block}.sla-operacao .sla-resumo-indicadores{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-indicador.produtividade{grid-column:auto}.sla-operacao .sla-mercado-geral,.sla-operacao .sla-detalhes-mercado{grid-template-columns:1fr}.sla-operacao .sla-cards-grid{grid-template-columns:1fr}.sla-operacao .sla-detalhes-indicadores,.sla-operacao .sla-retornos{grid-template-columns:repeat(2,minmax(0,1fr))}.sla-operacao .sla-historico-cabecalho{display:none}.sla-operacao .sla-dia{grid-template-columns:repeat(3,minmax(0,1fr))!important}.sla-operacao .sla-historico-extra{grid-template-columns:1fr}.sla-operacao .sla-detalhes-painel{padding:14px}}
 @media(max-width:850px){.operacao-premium{padding:0 0 28px}}
 `;
 
@@ -584,10 +634,11 @@ function dataCurtaSlaOperacao(data: number) {
 
 function isBaixaAutomaticaSlaOperacao(movimento: MovimentoSlaOperacao) {
   const d = new Date(movimento.data);
+  const minutos = d.getHours() * 60 + d.getMinutes();
   return (
-    movimento.status === "AUSENTE" &&
-    d.getHours() === 23 &&
-    d.getMinutes() === 40
+    (movimento.status === "ENTREGUE" ||
+      movimento.status === "AUSENTE") &&
+    minutos >= 23 * 60 + 40
   );
 }
 
@@ -626,7 +677,7 @@ function valorProdutividadeSlaOperacao(
   const horas = (ultima - primeira) / 3600000;
   return horas <= 0
     ? "-"
-    : `${(finalizados / horas).toFixed(1).replace(".", ",")}/h`;
+    : `${Math.round(finalizados / horas)}/h`;
 }
 
 function SlaOperacao({
@@ -641,7 +692,7 @@ function SlaOperacao({
   const [fim, setFim] = useState(hojeSlaOperacao());
   const [usuarioFiltro, setUsuarioFiltro] = useState("TODOS");
   const [busca, setBusca] = useState("");
-  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
+  const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
 
   const dados = useMemo(() => {
     const mapa = new Map<string, SlaOperacao>();
@@ -759,15 +810,12 @@ function SlaOperacao({
           dia.ausentes++;
         }
 
-        const baixasHumanas = baixas.filter(
+        // Baixas automáticas a partir de 23:40 permanecem no histórico e
+        // continuam participando dos demais cálculos, mas não definem a
+        // última baixa real do entregador.
+        const baixasParaUltima = baixas.filter(
           (movimento) => !isBaixaAutomaticaSlaOperacao(movimento)
         );
-        const baixasAntesDas2345 = baixasHumanas.filter((movimento) => {
-          const data = new Date(movimento.data);
-          return !(data.getHours() === 23 && data.getMinutes() === 45);
-        });
-        const baixasParaUltima =
-          baixasAntesDas2345.length > 0 ? baixasAntesDas2345 : baixasHumanas;
         if (baixasParaUltima.length) {
           const ultimaHumana =
             baixasParaUltima[baixasParaUltima.length - 1].data;
@@ -886,6 +934,41 @@ function SlaOperacao({
       .sort((a, b) => b.total - a.total);
   }, [dados, fim, ini, busca, usuarioFiltro]);
 
+  const resumo = useMemo(() => {
+    const total = cards.reduce((sum, score) => sum + score.total, 0);
+    const entregues = cards.reduce((sum, score) => sum + score.entregues, 0);
+    const ausentes = cards.reduce((sum, score) => sum + score.ausentes, 0);
+    const finalizados = entregues + ausentes;
+    const primeiras = cards
+      .map((score) => score.primeira)
+      .filter((valor): valor is number => valor !== null);
+    const ultimas = cards
+      .map((score) => score.ultima)
+      .filter((valor): valor is number => valor !== null);
+
+    return {
+      total,
+      entregues,
+      ausentes,
+      sla: finalizados ? (entregues / finalizados) * 100 : 0,
+      produtividade: valorProdutividadeSlaOperacao(
+        primeiras.length ? Math.min(...primeiras) : null,
+        ultimas.length ? Math.max(...ultimas) : null,
+        finalizados
+      ),
+      mlAte21: cards.reduce((sum, score) => sum + score.mlAte21, 0),
+      mlEntre21e23: cards.reduce(
+        (sum, score) => sum + score.mlEntre21e23,
+        0
+      ),
+      mlApos23: cards.reduce((sum, score) => sum + score.mlApos23, 0),
+    };
+  }, [cards]);
+
+  const selecionado = selecionadoId
+    ? cards.find((score) => score.id === selecionadoId) || null
+    : null;
+
   function selecionarPeriodo(valor: string) {
     setPeriodo(valor);
     const hoje = hojeSlaOperacao();
@@ -907,23 +990,10 @@ function SlaOperacao({
 
   return (
     <section className="sla-operacao">
-      <div
-        className="card sla-filtros"
-        style={{
-          padding: 16,
-          marginBottom: 16,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-          gap: 12,
-        }}
-      >
+      <div className="card sla-filtros" style={{ padding: 16, marginBottom: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
         <label>
           <span style={labelStyle}>PERÍODO</span>
-          <select
-            value={periodo}
-            onChange={(event) => selecionarPeriodo(event.target.value)}
-            style={{ width: "100%" }}
-          >
+          <select value={periodo} onChange={(event) => selecionarPeriodo(event.target.value)} style={{ width: "100%" }}>
             <option value="hoje">Hoje</option>
             <option value="ontem">Ontem</option>
             <option value="7">Últimos 7 dias</option>
@@ -931,307 +1001,157 @@ function SlaOperacao({
             <option value="personalizado">Período personalizado</option>
           </select>
         </label>
-
         <label>
           <span style={labelStyle}>DE</span>
-          <input
-            type="date"
-            value={ini}
-            onChange={(event) => {
-              setPeriodo("personalizado");
-              setIni(event.target.value);
-            }}
-            style={{ width: "100%" }}
-          />
+          <input type="date" value={ini} onChange={(event) => { setPeriodo("personalizado"); setIni(event.target.value); }} style={{ width: "100%" }} />
         </label>
-
         <label>
           <span style={labelStyle}>ATÉ</span>
-          <input
-            type="date"
-            value={fim}
-            onChange={(event) => {
-              setPeriodo("personalizado");
-              setFim(event.target.value);
-            }}
-            style={{ width: "100%" }}
-          />
+          <input type="date" value={fim} onChange={(event) => { setPeriodo("personalizado"); setFim(event.target.value); }} style={{ width: "100%" }} />
         </label>
-
         <label>
           <span style={labelStyle}>ENTREGADOR</span>
-          <select
-            value={usuarioFiltro}
-            onChange={(event) => setUsuarioFiltro(event.target.value)}
-            style={{ width: "100%" }}
-          >
+          <select value={usuarioFiltro} onChange={(event) => setUsuarioFiltro(event.target.value)} style={{ width: "100%" }}>
             <option value="TODOS">Todos</option>
-            {usuarios.map((usuario) => (
-              <option key={usuario.id} value={usuario.id}>
-                {usuario.nome}
-              </option>
-            ))}
+            {usuarios.map((usuario) => <option key={usuario.id} value={usuario.id}>{usuario.nome}</option>)}
           </select>
         </label>
-
         <label>
           <span style={labelStyle}>BUSCA</span>
-          <input
-            value={busca}
-            onChange={(event) => setBusca(event.target.value)}
-            placeholder="Nome do entregador"
-            style={{ width: "100%" }}
-          />
+          <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Nome do entregador" style={{ width: "100%" }} />
         </label>
       </div>
 
       {!cards.length ? (
-        <div className="card" style={{ padding: 24, color: "#64748b" }}>
-          Nenhum entregador com histórico no período selecionado.
-        </div>
+        <div className="card sla-vazio">Nenhum entregador com histórico no período selecionado.</div>
       ) : (
-        <div style={{ display: "grid", gap: 14 }}>
-          {cards.map((score) => {
-            const finalizados = score.entregues + score.ausentes;
-            const taxa = finalizados
-              ? (score.entregues / finalizados) * 100
-              : 0;
-            const aberto = Boolean(abertos[score.id]);
+        <>
+          <section className="card sla-resumo">
+            <div className="sla-resumo-cabecalho">
+              <div>
+                <h2 className="sla-resumo-titulo">RESUMO GERAL DO PERÍODO</h2>
+                <p className="sla-resumo-subtitulo">{cards.length} entregador(es) no filtro atual</p>
+              </div>
+            </div>
+            <div className="sla-resumo-indicadores">
+              <div className="sla-indicador pacotes"><span className="sla-indicador-label">PACOTES</span><strong className="sla-indicador-valor">{resumo.total}</strong></div>
+              <div className="sla-indicador entregues"><span className="sla-indicador-label">ENTREGUES</span><strong className="sla-indicador-valor">{resumo.entregues}</strong></div>
+              <div className="sla-indicador ausentes"><span className="sla-indicador-label">AUSENTES</span><strong className="sla-indicador-valor">{resumo.ausentes}</strong></div>
+              <div className="sla-indicador sla"><span className="sla-indicador-label">SLA</span><strong className="sla-indicador-valor">{formatarPercentualSlaOperacao(resumo.sla)}</strong></div>
+              <div className="sla-indicador produtividade"><span className="sla-indicador-label">PRODUTIVIDADE MÉDIA</span><strong className="sla-indicador-valor">{resumo.produtividade}</strong></div>
+            </div>
+            <h3 className="sla-subsecao-titulo">MERCADO LIVRE · CUMPRIMENTO DO PRAZO</h3>
+            <div className="sla-mercado-geral">
+              <div className="sla-mercado-item"><span>ATÉ 21:00</span><strong>{resumo.mlAte21}</strong></div>
+              <div className="sla-mercado-item"><span>21:01–23:00</span><strong>{resumo.mlEntre21e23}</strong></div>
+              <div className="sla-mercado-item"><span>APÓS 23:00</span><strong>{resumo.mlApos23}</strong></div>
+            </div>
+          </section>
 
-            return (
-              <article className="card sla-score-card" key={score.id}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAbertos((atual) => ({
-                      ...atual,
-                      [score.id]: !atual[score.id],
-                    }))
-                  }
-                  className="sla-score-toggle"
-                  style={{
-                    width: "100%",
-                    padding: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 16,
-                    border: 0,
-                    background: "transparent",
-                    color: "#111827",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <div>
-                    <strong style={{ display: "block", fontSize: 16 }}>
-                      {score.nome}
-                    </strong>
-                    <small style={{ color: "#64748b" }}>
-                      {score.id}
-                    </small>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <SlaNumero label="PACOTES" valor={score.total} cor="#c9a227" />
-                    <SlaNumero label="ENTREGUES" valor={score.entregues} cor="#16a34a" />
-                    <SlaNumero label="AUSENTES" valor={score.ausentes} cor="#ef4444" />
-                    <SlaNumero label="TAXA" valor={formatarPercentualSlaOperacao(taxa)} cor="#c9a227" />
-                  </div>
-                  <span style={{ color: "#64748b", fontSize: 20 }}>
-                    {aberto ? "−" : "+"}
-                  </span>
-                </button>
-
-                {aberto && (
-                  <div
-                    className="sla-detalhes"
-                    style={{
-                      borderTop: "1px solid #e5e7eb",
-                      padding: 16,
-                      display: "grid",
-                      gap: 16,
-                    }}
+          <div className="sla-entregadores-titulo">
+            <h2>ENTREGADORES</h2>
+            <span>Selecione um card para ver os detalhes</span>
+          </div>
+          <div className="sla-cards-grid">
+            {cards.map((score) => {
+              const finalizados = score.entregues + score.ausentes;
+              const taxa = finalizados ? (score.entregues / finalizados) * 100 : 0;
+              const selecionadoAtual = selecionadoId === score.id;
+              return (
+                <article className={`card sla-score-card${selecionadoAtual ? " selecionado" : ""}`} key={score.id}>
+                  <button
+                    type="button"
+                    aria-pressed={selecionadoAtual}
+                    onClick={() => setSelecionadoId(selecionadoAtual ? null : score.id)}
+                    className="sla-score-toggle"
+                    style={{ width: "100%", border: 0, background: "transparent", color: "#111827", cursor: "pointer", textAlign: "left" }}
                   >
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns:
-                          "repeat(auto-fit,minmax(150px,1fr))",
-                        gap: 8,
-                      }}
-                    >
-                      <SlaInfo label="ROTA" valor={String(score.rota)} />
-                      <SlaInfo
-                        label="PRIMEIRA MOVIMENTAÇÃO"
-                        valor={horarioSlaOperacao(score.primeira)}
-                      />
-                      <SlaInfo
-                        label="ÚLTIMA BAIXA"
-                        valor={horarioSlaOperacao(score.ultima)}
-                      />
-                      <SlaInfo
-                        label="PRODUTIVIDADE"
-                        valor={valorProdutividadeSlaOperacao(
-                          score.primeira,
-                          score.ultima,
-                          finalizados
-                        )}
-                      />
-                    </div>
-
-                    <div>
-                      <h3 className="sla-titulo-secao">
-                        MERCADO LIVRE · CUMPRIMENTO DO PRAZO
-                      </h3>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit,minmax(140px,1fr))",
-                          gap: 8,
-                        }}
-                      >
-                        <SlaInfo label="ATÉ 21:00" valor={String(score.mlAte21)} />
-                        <SlaInfo
-                          label="21:01–23:00"
-                          valor={String(score.mlEntre21e23)}
-                        />
-                        <SlaInfo label="APÓS 23:00" valor={String(score.mlApos23)} />
+                    <div className="sla-score-cabecalho">
+                      <span className="sla-avatar"><User size={18} /></span>
+                      <div style={{ minWidth: 0 }}>
+                        <strong className="sla-score-nome">{score.nome}</strong>
+                        <small className="sla-score-id">{score.id}</small>
                       </div>
                     </div>
-
-                    <div>
-                      <h3 className="sla-titulo-secao">
-                        RETORNOS
-                      </h3>
-                      <div
-                        className="sla-retornos"
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(3,minmax(0,1fr))",
-                          gap: 8,
-                          padding: 10,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <SlaInfo
-                          label="TOTAL"
-                          valor={String(score.retornos)}
-                        />
-                        <SlaInfo
-                          label="VOLTARAM À ROTA"
-                          valor={String(score.retornaramParaRota)}
-                        />
-                        <SlaInfo
-                          label="POST. ENTREGUES"
-                          valor={String(
-                            score.retornosPosteriormenteEntregues
-                          )}
-                        />
-                      </div>
+                    <div className="sla-card-metricas">
+                      <div className="sla-card-metrica pacotes"><small>PACOTES</small><strong>{score.total}</strong></div>
+                      <div className="sla-card-metrica entregues"><small>ENTREGUES</small><strong>{score.entregues}</strong></div>
+                      <div className="sla-card-metrica ausentes"><small>AUSENTES</small><strong>{score.ausentes}</strong></div>
+                      <div className="sla-card-metrica sla"><small>SLA</small><strong>{formatarPercentualSlaOperacao(taxa)}</strong></div>
+                      <div className="sla-card-metrica produtividade"><small>PRODUTIVIDADE</small><strong>{valorProdutividadeSlaOperacao(score.primeira, score.ultima, finalizados)}</strong></div>
                     </div>
+                    <div className="sla-card-rodape"><span>{selecionadoAtual ? "OCULTAR DETALHES" : "VER DETALHES"}</span><span>{selecionadoAtual ? "−" : "+"}</span></div>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
 
-                    <div>
-                      <h3 className="sla-titulo-secao">
-                        HISTÓRICO DIÁRIO
-                      </h3>
-                      <div style={{ display: "grid", gap: 7 }}>
-                        {score.dias.map((dia) => {
-                          const diaFinalizados =
-                            dia.entregues + dia.ausentes;
-                          const diaTaxa = diaFinalizados
-                            ? (dia.entregues / diaFinalizados) * 100
-                            : 0;
+          {selecionado && (
+            <section className="card sla-detalhes-painel">
+              <div className="sla-detalhes-cabecalho">
+                <div>
+                  <h2>DETALHES DE {selecionado.nome}</h2>
+                  <span>{selecionado.id}</span>
+                </div>
+              </div>
+              <div className="sla-detalhes">
+                <div className="sla-detalhes-indicadores">
+                  <SlaInfo label="ROTA" valor={String(selecionado.rota)} />
+                  <SlaInfo label="PRIMEIRA MOVIMENTAÇÃO" valor={horarioSlaOperacao(selecionado.primeira)} />
+                  <SlaInfo label="ÚLTIMA BAIXA" valor={horarioSlaOperacao(selecionado.ultima)} />
+                  <SlaInfo label="PRODUTIVIDADE" valor={valorProdutividadeSlaOperacao(selecionado.primeira, selecionado.ultima, selecionado.entregues + selecionado.ausentes)} />
+                </div>
 
-                          return (
-                            <div
-                              key={dia.data}
-                              className="sla-dia"
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns:
-                                  "70px repeat(5,minmax(0,1fr))",
-                                gap: 7,
-                                alignItems: "center",
-                                padding: 9,
-                                borderRadius: 8,
-                                background: "#fff",
-                                fontSize: 11,
-                              }}
-                            >
-                              <strong>{dataCurtaSlaOperacao(dia.data)}</strong>
-                              <span>P {dia.pacotes}</span>
-                              <span style={{ color: "#2563eb" }}>
-                                R {dia.rota}
-                              </span>
-                              <span style={{ color: "#16a34a" }}>
-                                ✓ {dia.entregues}
-                              </span>
-                              <span style={{ color: "#dc2626" }}>
-                                ! {dia.ausentes}
-                              </span>
-                              <span>{formatarPercentualSlaOperacao(diaTaxa)}</span>
-                              <div
-                                style={{
-                                  gridColumn: "1 / -1",
-                                  display: "grid",
-                                  gridTemplateColumns:
-                                    "repeat(3,minmax(0,1fr))",
-                                  gap: 7,
-                                  paddingTop: 6,
-                                  borderTop: "1px solid #e5e7eb",
-                                }}
-                              >
-                                <span>RETORNOS {dia.retornos}</span>
-                                <span>
-                                  VOLTARAM À ROTA {dia.retornaramParaRota}
-                                </span>
-                                <span>
-                                  POST. ENTREGUES{" "}
-                                  {dia.retornosPosteriormenteEntregues}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                <div>
+                  <h3 className="sla-titulo-secao">MERCADO LIVRE · CUMPRIMENTO DO PRAZO</h3>
+                  <div className="sla-detalhes-mercado">
+                    <SlaInfo label="ATÉ 21:00" valor={String(selecionado.mlAte21)} />
+                    <SlaInfo label="21:01–23:00" valor={String(selecionado.mlEntre21e23)} />
+                    <SlaInfo label="APÓS 23:00" valor={String(selecionado.mlApos23)} />
                   </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
+                </div>
+
+                <div>
+                  <h3 className="sla-titulo-secao">RETORNOS</h3>
+                  <div className="sla-retornos">
+                    <SlaInfo label="TOTAL" valor={String(selecionado.retornos)} />
+                    <SlaInfo label="VOLTARAM À ROTA" valor={String(selecionado.retornaramParaRota)} />
+                    <SlaInfo label="POST. ENTREGUES" valor={String(selecionado.retornosPosteriormenteEntregues)} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="sla-titulo-secao">HISTÓRICO DIÁRIO</h3>
+                  <div className="sla-historico-cabecalho"><span>DATA</span><span>PACOTES</span><span>ROTA</span><span>ENTREGUES</span><span>AUSENTES</span><span>SLA</span></div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {selecionado.dias.map((dia) => {
+                      const diaFinalizados = dia.entregues + dia.ausentes;
+                      const diaTaxa = diaFinalizados ? (dia.entregues / diaFinalizados) * 100 : 0;
+                      return (
+                        <div key={dia.data} className="sla-dia" style={{ display: "grid", gridTemplateColumns: "75px repeat(5,minmax(0,1fr))", gap: 8, alignItems: "center", padding: 10, borderRadius: 11, fontSize: 11 }}>
+                          <strong>{dataCurtaSlaOperacao(dia.data)}</strong>
+                          <span>P {dia.pacotes}</span>
+                          <span style={{ color: "#2563eb" }}>R {dia.rota}</span>
+                          <span style={{ color: "#16a34a" }}>✓ {dia.entregues}</span>
+                          <span style={{ color: "#dc2626" }}>! {dia.ausentes}</span>
+                          <span>{formatarPercentualSlaOperacao(diaTaxa)}</span>
+                          <div className="sla-historico-extra">
+                            <span>RETORNOS {dia.retornos}</span>
+                            <span>VOLTARAM À ROTA {dia.retornaramParaRota}</span>
+                            <span>POST. ENTREGUES {dia.retornosPosteriormenteEntregues}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </section>
-  );
-}
-
-function SlaNumero({
-  label,
-  valor,
-  cor,
-}: {
-  label: string;
-  valor: string | number;
-  cor: string;
-}) {
-  return (
-    <span
-      style={{
-        padding: "7px 9px",
-        borderRadius: 8,
-        background: `${cor}16`,
-        border: `1px solid ${cor}55`,
-        color: cor,
-        fontSize: 10,
-        fontWeight: 800,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}: {valor}
-    </span>
   );
 }
 

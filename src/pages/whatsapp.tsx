@@ -18,6 +18,7 @@ import {
 import {
   CheckCircle2,
   Clock3,
+  Bot,
   Image as ImageIcon,
   MapPin,
   MessageCircle,
@@ -31,6 +32,7 @@ import {
   Save,
   Users,
   Handshake,
+  UserRound,
 } from "lucide-react";
 
 import { db } from "../services/firebase/firebase";
@@ -338,6 +340,8 @@ export default function WhatsApp() {
   const [buscaChat, setBuscaChat] = useState("");
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [alterandoModo, setAlterandoModo] =
+    useState(false);
   const [erroChat, setErroChat] = useState("");
 
   // ==========================================================
@@ -735,12 +739,99 @@ export default function WhatsApp() {
   // ENVIAR MENSAGEM
   // ==========================================================
 
+  async function alternarAtendimentoHumano() {
+    if (
+      !selecionada?.numero ||
+      alterandoModo
+    ) {
+      return;
+    }
+
+    const atendimentoHumano =
+      selecionada.atendimentoHumano === true;
+    const novoModo =
+      atendimentoHumano
+        ? "ia"
+        : "humano";
+
+    setAlterandoModo(true);
+    setErroChat("");
+
+    try {
+      const resposta = await fetch(
+        "/api/whatsapp/control",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            numero:
+              selecionada.numero,
+            acao:
+              novoModo,
+          }),
+        }
+      );
+
+      const dados =
+        await resposta
+          .json()
+          .catch(() => ({}));
+
+      if (!resposta.ok) {
+        throw new Error(
+          dados?.mensagem ||
+            dados?.error ||
+            "Não foi possível alterar o modo da conversa."
+        );
+      }
+
+      setSelecionada((atual) =>
+        atual
+          ? {
+              ...atual,
+              atendimentoHumano:
+                novoModo === "humano",
+              modo:
+                novoModo,
+            }
+          : atual
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao alterar modo da conversa:",
+        error
+      );
+
+      setErroChat(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível alterar o modo da conversa."
+      );
+    } finally {
+      setAlterandoModo(false);
+    }
+  }
+
   async function enviarMensagem() {
     if (
       !selecionada ||
       !texto.trim() ||
-      enviando
+      enviando ||
+      selecionada.atendimentoHumano !== true
     ) {
+      if (
+        selecionada &&
+        selecionada.atendimentoHumano !== true &&
+        texto.trim()
+      ) {
+        setErroChat(
+          "Assuma o atendimento para responder pelo site."
+        );
+      }
+
       return;
     }
 
@@ -1262,6 +1353,11 @@ export default function WhatsApp() {
           font-weight: 800;
         }
 
+        .aw-human.aw-ai {
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+
         /* =====================================================
            CHAT AREA
         ===================================================== */
@@ -1367,6 +1463,50 @@ export default function WhatsApp() {
           border-radius: 50%;
 
           background: #22c55e;
+        }
+
+        .aw-mode-control {
+          display: flex;
+          align-items: flex-end;
+          flex-direction: column;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+
+        .aw-mode-status {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 5px 8px;
+          border-radius: 20px;
+          font-size: 8px;
+          font-weight: 800;
+        }
+
+        .aw-mode-status.ai {
+          background: #eff6ff;
+          color: #1d4ed8;
+        }
+
+        .aw-mode-status.human {
+          background: #ecfdf3;
+          color: #15803d;
+        }
+
+        .aw-mode-button {
+          border: 0;
+          border-radius: 6px;
+          padding: 6px 9px;
+          background: #111827;
+          color: #ffffff;
+          cursor: pointer;
+          font-size: 9px;
+          font-weight: 800;
+        }
+
+        .aw-mode-button:disabled {
+          cursor: wait;
+          opacity: 0.55;
         }
 
         .aw-messages {
@@ -2163,6 +2303,15 @@ export default function WhatsApp() {
             display: none;
           }
 
+          .aw-mode-status span {
+            display: none;
+          }
+
+          .aw-mode-button {
+            padding: 5px 6px;
+            font-size: 8px;
+          }
+
           .aw-messages {
             padding: 12px;
           }
@@ -2396,11 +2545,17 @@ export default function WhatsApp() {
                               : ""}
                           </div>
 
-                          {conversa.atendimentoHumano && (
-                            <span className="aw-human">
-                              Atendimento humano
-                            </span>
-                          )}
+                          <span
+                            className={
+                              conversa.atendimentoHumano
+                                ? "aw-human"
+                                : "aw-human aw-ai"
+                            }
+                          >
+                            {conversa.atendimentoHumano
+                              ? "👤 Atendimento humano"
+                              : "🤖 IA ativa"}
+                          </span>
 
                         </div>
 
@@ -2456,11 +2611,40 @@ export default function WhatsApp() {
 
                   </div>
 
-                  <div className="aw-online">
+                  <div className="aw-mode-control">
 
-                    <span className="aw-online-dot" />
+                    <div
+                      className={
+                        selecionada.atendimentoHumano
+                          ? "aw-mode-status human"
+                          : "aw-mode-status ai"
+                      }
+                    >
+                      {selecionada.atendimentoHumano ? (
+                        <UserRound size={13} />
+                      ) : (
+                        <Bot size={13} />
+                      )}
 
-                    WhatsApp conectado
+                      <span>
+                        {selecionada.atendimentoHumano
+                          ? "ATENDIMENTO HUMANO"
+                          : "IA ATIVA"}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="aw-mode-button"
+                      disabled={alterandoModo}
+                      onClick={
+                        alternarAtendimentoHumano
+                      }
+                    >
+                      {selecionada.atendimentoHumano
+                        ? "🤖 Ativar IA"
+                        : "👤 Assumir atendimento"}
+                    </button>
 
                   </div>
 
@@ -2478,6 +2662,12 @@ export default function WhatsApp() {
                         const ehAssistente =
                           mensagem.papel ===
                           "assistente";
+                        const ehHumano =
+                          ehAssistente &&
+                          String(
+                            mensagem.origem || ""
+                          ).toLowerCase() ===
+                            "humano";
 
                         const imagem =
                           obterUrlImagem(
@@ -2506,9 +2696,11 @@ export default function WhatsApp() {
                             >
 
                               <div className="aw-message-role">
-                                {ehAssistente
-                                  ? "IA / Assistente"
-                                  : "Cliente"}
+                                {ehHumano
+                                  ? "👤 Atendimento humano"
+                                  : ehAssistente
+                                    ? "🤖 IA"
+                                    : "📦 Cliente"}
                               </div>
 
                               {imagem && (
@@ -2574,6 +2766,10 @@ export default function WhatsApp() {
 
                   <textarea
                     value={texto}
+                    disabled={
+                      selecionada.atendimentoHumano !==
+                      true
+                    }
                     onChange={(event) =>
                       setTexto(
                         event.target.value
@@ -2588,14 +2784,20 @@ export default function WhatsApp() {
                         enviarMensagem();
                       }
                     }}
-                    placeholder="Digite uma mensagem..."
+                    placeholder={
+                      selecionada.atendimentoHumano
+                        ? "Digite uma mensagem..."
+                        : "Assuma o atendimento para responder..."
+                    }
                   />
 
                   <button
                     className="aw-send"
                     disabled={
                       enviando ||
-                      !texto.trim()
+                      !texto.trim() ||
+                      selecionada.atendimentoHumano !==
+                        true
                     }
                     onClick={
                       enviarMensagem

@@ -1219,6 +1219,10 @@ export default function Operacao() {
   const [usuarioFiltro, setUsuarioFiltro] =
     useState("TODOS");
   const [tipoFiltro, setTipoFiltro] = useState("TODOS");
+  const [confirmacaoFiltro, setConfirmacaoFiltro] =
+    useState<
+      "TODOS" | "CONFIRMADOS" | "NAO_CONFIRMADOS"
+    >("TODOS");
   const [statusFiltros, setStatusFiltros] =
     useState<StatusPacote[]>([]);
   const [filtrosAberto, setFiltrosAberto] =
@@ -1435,6 +1439,18 @@ export default function Operacao() {
     usuariosMap,
   ]);
 
+  const baseQr = useMemo(() => {
+    if (confirmacaoFiltro === "TODOS") {
+      return base;
+    }
+
+    return base.filter((p) =>
+      confirmacaoFiltro === "CONFIRMADOS"
+        ? p.confirmado === true
+        : p.confirmado !== true
+    );
+  }, [base, confirmacaoFiltro]);
+
   const resumoUsuarios = useMemo(() => {
     const mapa = new Map<
       string,
@@ -1498,7 +1514,7 @@ export default function Operacao() {
     );
   }, [base, usuariosMap]);
 
-  const pacoteQr = base[indiceQr];
+  const pacoteQr = baseQr[indiceQr];
 
   function toggleStatus(status: StatusPacote) {
     setStatusFiltros((atual) =>
@@ -1515,6 +1531,7 @@ export default function Operacao() {
     setEmpresa("TODAS");
     setUsuarioFiltro("TODOS");
     setTipoFiltro("TODOS");
+    setConfirmacaoFiltro("TODOS");
     setStatusFiltros([]);
     setIndiceQr(0);
   }
@@ -1593,7 +1610,7 @@ export default function Operacao() {
 
         setIndiceQr((i) =>
           Math.min(
-            base.length - 1,
+            baseQr.length - 1,
             i + 1
           )
         );
@@ -1610,7 +1627,7 @@ export default function Operacao() {
         "keydown",
         teclado
       );
-  }, [visualizacao, base.length]);
+  }, [visualizacao, baseQr.length]);
 
   if (permission === "loading") {
     return (
@@ -1876,6 +1893,38 @@ export default function Operacao() {
                     ))}
                   </select>
                 </label>
+
+                {visualizacao === "QR" && (
+                  <label>
+                    <span style={labelStyle}>
+                      CONFIRMAÇÃO
+                    </span>
+
+                    <select
+                      value={confirmacaoFiltro}
+                      onChange={(e) => {
+                        setConfirmacaoFiltro(
+                          e.target.value as
+                            | "TODOS"
+                            | "CONFIRMADOS"
+                            | "NAO_CONFIRMADOS"
+                        );
+                        setIndiceQr(0);
+                      }}
+                      style={{ width: "100%" }}
+                    >
+                      <option value="TODOS">
+                        Todos
+                      </option>
+                      <option value="CONFIRMADOS">
+                        Confirmados
+                      </option>
+                      <option value="NAO_CONFIRMADOS">
+                        Não confirmados
+                      </option>
+                    </select>
+                  </label>
+                )}
               </div>
 
               <div
@@ -2015,7 +2064,7 @@ export default function Operacao() {
                   overflowY: "auto",
                 }}
               >
-                {base.map((p, index) => (
+                {baseQr.map((p, index) => (
                   <button
                     key={p.id}
                     onClick={() =>
@@ -2070,7 +2119,7 @@ export default function Operacao() {
                   </button>
                 ))}
 
-                {!base.length && (
+                {!baseQr.length && (
                   <div
                     style={{
                       padding: 20,
@@ -2106,7 +2155,7 @@ export default function Operacao() {
                         }}
                       >
                         PACOTE {indiceQr + 1} DE{" "}
-                        {base.length}
+                        {baseQr.length}
                       </div>
 
                       <h2
@@ -2354,13 +2403,13 @@ export default function Operacao() {
                       onClick={() =>
                         setIndiceQr((i) =>
                           Math.min(
-                            base.length - 1,
+                            baseQr.length - 1,
                             i + 1
                           )
                         )
                       }
                       disabled={
-                        indiceQr >= base.length - 1
+                        indiceQr >= baseQr.length - 1
                       }
                       style={botao}
                     >

@@ -2302,8 +2302,8 @@ export default function Operacao() {
                           )
                             ? "SALVANDO..."
                             : pacoteQr.confirmado
-                              ? "DESMARCAR"
-                              : "MARCAR"}
+                              ? "CONFIRMADO"
+                              : "CONFIRMAR"}
                           </button>
 
                           <button

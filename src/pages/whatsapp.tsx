@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
+import { db } from "../services/firebase/firebase";
+import {
   Activity,
   AlertCircle,
   ArrowUpRight,
@@ -69,8 +76,6 @@ type ApiPayload = {
   colaboradores: RegisterItem[];
   parceiros: RegisterItem[];
 };
-
-const INTERNAL_CONVERSATIONS_ENDPOINT = "/api/whatsapp/conversas";
 
 const palette = {
   ink: "#18211f",
@@ -580,23 +585,89 @@ export default function WhatsApp() {
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  async function loadData() {
+  function loadData() {
     setLoading(true);
     setError("");
-    try {
-      const response = await fetch(INTERNAL_CONVERSATIONS_ENDPOINT, { headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error("endpoint indisponível");
-      setPayload(normalizePayload(await response.json()));
-      setLastUpdate(new Date());
-    } catch {
-      setPayload({ conversations: [], colaboradores: [], parceiros: [] });
-      setError("Não foi possível atualizar as conversas agora.");
-    } finally {
-      setLoading(false);
-    }
+
+    const referencia = collection(db, "whatsapp_conversas");
+
+    // IMPORTANTE: não usar orderBy no Firestore aqui.
+    // orderBy("atualizadoEm") exclui documentos que não possuem esse campo.
+    // Todos os documentos são carregados e a ordenação é feita no cliente.
+    const consulta = query(referencia);
+
+    return onSnapshot(
+      consulta,
+      (snapshot) => {
+        const conversations = snapshot.docs
+          .map((item, index) => {
+            const data = item.data() as UnknownRecord;
+            return normalizeConversation({ ...data, id: item.id }, index);
+          })
+          .sort((a, b) => {
+            const aTime = a.updatedAt?.getTime() || 0;
+            const bTime = b.updatedAt?.getTime() || 0;
+            return bTime - aTime;
+          });
+
+        setPayload((current) => ({
+          ...current,
+          conversations,
+        }));
+        setLastUpdate(new Date());
+        setLoading(false);
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar WhatsApp:", snapshotError);
+        setError("Não foi possível carregar as conversas agora.");
+        setLoading(false);
+      }
+    );
   }
 
-  useEffect(() => { void loadData(); }, []);
+  useEffect(() => {
+    const referencia = collection(db, "candidatos_entregadores");
+
+    return onSnapshot(
+      referencia,
+      (snapshot) => {
+        const colaboradores = snapshot.docs
+          .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "colaborador", index))
+          .sort((a, b) => {
+            const aRaw = record(a);
+            const bRaw = record(b);
+            return String(aRaw.id || "").localeCompare(String(bRaw.id || ""));
+          });
+
+        setPayload((current) => ({ ...current, colaboradores }));
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar colaboradores:", snapshotError);
+      }
+    );
+  }, []);
+
+  useEffect(() => {
+    const referencia = collection(db, "solicitacoes_parceiros");
+
+    return onSnapshot(
+      referencia,
+      (snapshot) => {
+        const parceiros = snapshot.docs
+          .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "parceiro", index))
+          .sort((a, b) => {
+            const aRaw = record(a);
+            const bRaw = record(b);
+            return String(aRaw.id || "").localeCompare(String(bRaw.id || ""));
+          });
+
+        setPayload((current) => ({ ...current, parceiros }));
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar parceiros:", snapshotError);
+      }
+    );
+  }, []);
 
   const active = payload.conversations.filter((conversation) => conversation.status.toLowerCase() !== "encerrada" && conversation.status.toLowerCase() !== "fechada").length;
   const unread = payload.conversations.reduce((total, conversation) => total + conversation.unread, 0);
@@ -605,7 +676,7 @@ export default function WhatsApp() {
   return <><style>{css}</style><main className="wa-page"><div className="wa-wrap">
     <header className="wa-hero"><div><div className="wa-kicker"><span className="wa-kicker-dot" /> Central de atendimento</div><h1 className="wa-title">WhatsApp</h1><p className="wa-subtitle">Atendimento Águia Express</p></div><div className="wa-metrics"><div className="wa-metric"><span className="wa-metric-label">Conversas</span><span className="wa-metric-value">{payload.conversations.length}</span></div><div className="wa-metric"><span className="wa-metric-label">Ativas</span><span className="wa-metric-value">{active}</span></div><div className="wa-metric"><span className="wa-metric-label">Não lidas</span><span className="wa-metric-value">{unread}</span></div><div className="wa-metric"><span className="wa-metric-label">Última atualização</span><span className="wa-metric-value small">{latest ? formatTime(latest) : "Aguardando"}</span></div></div></header>
     <nav className="wa-tabs" aria-label="Áreas do atendimento"><button className={`wa-tab ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}><MessageCircle size={14} /> Chat <span className="wa-tab-count">{payload.conversations.length}</span></button><button className={`wa-tab ${tab === "colaboradores" ? "active" : ""}`} onClick={() => setTab("colaboradores")}><UsersRound size={14} /> Colaboradores <span className="wa-tab-count">{payload.colaboradores.length}</span></button><button className={`wa-tab ${tab === "parceiros" ? "active" : ""}`} onClick={() => setTab("parceiros")}><Building2 size={14} /> Parceiros <span className="wa-tab-count">{payload.parceiros.length}</span></button></nav>
-    {tab === "chat" && <ChatView conversations={payload.conversations} error={error} loading={loading} onRefresh={() => void loadData()} />}
+    {tab === "chat" && <ChatView conversations={payload.conversations} error={error} loading={loading} onRefresh={() => {}} />}
     {tab === "colaboradores" && <RegisterView items={payload.colaboradores} type="colaboradores" />}
     {tab === "parceiros" && <RegisterView items={payload.parceiros} type="parceiros" />}
     <div style={{ display: "none" }}><Activity /><ArrowUpRight /><Check /><Clock3 /><ImageIcon /><Paperclip /><Phone /></div>

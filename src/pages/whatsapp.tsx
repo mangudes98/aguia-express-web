@@ -342,7 +342,9 @@ function messageFrom(
 ): NormalizedMessage | null {
   const item = record(raw);
   const preview = record(item.content);
-  const value = firstText(item.texto, item.text, item.message, item.body, item.llm_output_preview, item.llmOutputPreview, preview.text, preview.value);
+  const directValue = typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
+  const contentValue = typeof item.content === "string" || typeof item.content === "number" ? String(item.content) : "";
+  const value = firstText(directValue, item.texto, item.text, item.message, item.body, item.llm_output_preview, item.llmOutputPreview, contentValue, preview.text, preview.value);
   const image = mediaUrl(item);
   if (!value && !image) return null;
   const at = options?.at ?? dateValue(item.em ?? item.timestamp ?? item.createdAt ?? item.created_at);
@@ -437,7 +439,7 @@ function dedupeMessages(messages: NormalizedMessage[]): NormalizedMessage[] {
   const seen = new Set<string>();
   return messages.filter((message) => {
     const fallback = `${message.turnId || ""}|${message.at?.getTime() || 0}|${message.text}|${message.imageUrl || ""}`;
-    const key = message.messageId ? `message:${message.messageId}` : `fallback:${fallback}`;
+    const key = message.messageId ? `message:${message.messageId}:${message.role}` : `fallback:${message.role}:${fallback}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

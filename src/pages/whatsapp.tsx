@@ -1,25 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import type { ReactNode } from "react";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../services/firebase/firebase";
 import {
-  Activity,
   AlertCircle,
-  ArrowUpRight,
   Bot,
   Building2,
-  Check,
   ChevronDown,
-  Clock3,
-  Image as ImageIcon,
   LoaderCircle,
   MessageCircle,
-  Paperclip,
-  Phone,
   RefreshCw,
   Search,
   Send,
@@ -35,32 +24,46 @@ type Role = "cliente" | "assistente";
 
 type NormalizedMessage = {
   id: string;
+  messageId?: string;
+  turnId?: string;
   role: Role;
   text: string;
   at: Date | null;
   imageUrl?: string;
   type?: string;
   human?: boolean;
+  source: "firestore" | "meta";
+  sequence: number;
 };
 
 type ToolActivity = {
   id: string;
+  turnId?: string;
   name: string;
   input?: string;
   output?: string;
+  status?: string;
   at: Date | null;
+  source: "firestore" | "meta";
+  sequence: number;
 };
+
+type TimelineItem =
+  | { kind: "message"; id: string; at: Date | null; sequence: number; message: NormalizedMessage }
+  | { kind: "activity"; id: string; at: Date | null; sequence: number; activity: ToolActivity };
 
 type Conversation = {
   id: string;
   name: string;
   phone: string;
+  bsuid?: string;
   status: string;
   updatedAt: Date | null;
   unread: number;
   human: boolean;
   messages: NormalizedMessage[];
   activities: ToolActivity[];
+  turns: unknown[];
 };
 
 type RegisterItem = {
@@ -76,6 +79,13 @@ type ApiPayload = {
   colaboradores: RegisterItem[];
   parceiros: RegisterItem[];
 };
+
+type PageCursor = {
+  value: string;
+  parameter: "before" | "after" | "cursor" | "url";
+};
+
+const CONVERSATION_TURNS_ENDPOINT = "/insights/conversations/turns";
 
 const palette = {
   ink: "#18211f",
@@ -182,8 +192,9 @@ const css = `
   .wa-activity { margin: 13px auto; border: 1px solid #e5e7d6; border-radius: 12px; color: #6e704f; background: rgba(255,255,255,.7); font-size: 10px; }
   .wa-activity summary { display: flex; align-items: center; gap: 7px; padding: 10px 12px; cursor: pointer; list-style: none; font-weight: 800; }
   .wa-activity summary::-webkit-details-marker { display: none; }
-  .wa-activity-body { padding: 0 12px 11px 34px; color: #747766; line-height: 1.5; }
+  .wa-activity-body { padding: 0 12px 11px 34px; color: #747766; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .wa-activity-label { display: block; margin-top: 5px; color: #9a9b7d; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+  .wa-activity-status { margin-left: auto; color: #82938a; font-size: 9px; text-transform: uppercase; }
   .wa-compose { display: flex; align-items: flex-end; gap: 9px; padding: 12px 16px; border-top: 1px solid ${palette.line}; background: #fff; }
   .wa-compose textarea { min-height: 41px; max-height: 100px; resize: vertical; flex: 1; padding: 11px 12px; border: 1px solid ${palette.line}; border-radius: 10px; outline: none; color: ${palette.ink}; background: #fbfdfb; font-size: 11px; }
   .wa-compose textarea:focus { border-color: ${palette.green}; box-shadow: 0 0 0 3px rgba(47,143,104,.1); }
@@ -251,7 +262,14 @@ function record(value: unknown): UnknownRecord {
 }
 
 function text(value: unknown): string {
-  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
   return "";
 }
 
@@ -269,10 +287,7 @@ function dateValue(value: unknown): Date | null {
   }
   if (typeof value === "object") {
     const item = record(value);
-    if (typeof item.toDate === "function") {
-      const date = (item.toDate as () => unknown)();
-      return dateValue(date);
-    }
+    if (typeof item.toDate === "function") return dateValue((item.toDate as () => unknown)());
     if (typeof item.seconds === "number") return dateValue(item.seconds);
     if (typeof item._seconds === "number") return dateValue(item._seconds);
   }
@@ -281,15 +296,11 @@ function dateValue(value: unknown): Date | null {
 }
 
 function formatTime(value: Date | null): string {
-  return value
-    ? value.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-    : "";
+  return value ? value.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
 }
 
 function formatDate(value: Date | null): string {
-  return value
-    ? value.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
-    : "";
+  return value ? value.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
 }
 
 function formatRelativeDate(value: Date | null): string {
@@ -302,8 +313,15 @@ function formatRelativeDate(value: Date | null): string {
 function formatPhone(value: string): string {
   const digits = value.replace(/\D/g, "");
   if (digits.length === 13) return `+${digits.slice(0, 2)} (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  if (digits.length === 12) return `+${digits.slice(0, 2)} (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   return value;
+}
+
+function normalizePhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if ((digits.length === 10 || digits.length === 11) && !digits.startsWith("55")) return `55${digits}`;
+  return digits;
 }
 
 function mediaUrl(item: UnknownRecord): string {
@@ -316,24 +334,38 @@ function roleFor(item: UnknownRecord): Role {
   return ["assistente", "assistant", "ia", "bot", "meta", "agent", "llm"].some((value) => role.includes(value)) ? "assistente" : "cliente";
 }
 
-function messageFrom(raw: unknown, index: number, forcedRole?: Role): NormalizedMessage | null {
+function messageFrom(
+  raw: unknown,
+  index: number,
+  forcedRole?: Role,
+  options?: Partial<Pick<NormalizedMessage, "source" | "turnId" | "messageId" | "at" | "sequence">>,
+): NormalizedMessage | null {
   const item = record(raw);
   const preview = record(item.content);
   const value = firstText(item.texto, item.text, item.message, item.body, item.llm_output_preview, item.llmOutputPreview, preview.text, preview.value);
   const image = mediaUrl(item);
   if (!value && !image) return null;
+  const at = options?.at ?? dateValue(item.em ?? item.timestamp ?? item.createdAt ?? item.created_at);
   return {
-    id: firstText(item.id, item.messageId, item.message_id, `message-${index}`),
+    id: firstText(item.id, item.messageId, item.message_id, options?.messageId, `message-${index}`),
+    messageId: options?.messageId || firstText(item.message_id, item.messageId) || undefined,
+    turnId: options?.turnId,
     role: forcedRole || roleFor(item),
     text: value,
-    at: dateValue(item.em ?? item.timestamp ?? item.createdAt ?? item.created_at),
+    at,
     imageUrl: image || undefined,
     type: firstText(item.tipo, item.type, item.mimeType) || undefined,
     human: firstText(item.origem, item.source).toLowerCase() === "humano",
+    source: options?.source || "firestore",
+    sequence: options?.sequence ?? index,
   };
 }
 
-function toolFrom(raw: unknown, index: number): ToolActivity | null {
+function toolFrom(
+  raw: unknown,
+  index: number,
+  options?: Partial<Pick<ToolActivity, "source" | "turnId" | "at" | "sequence">>,
+): ToolActivity | null {
   const item = record(raw);
   const name = firstText(item.tool_name, item.toolName, item.name, item.ferramenta);
   const input = text(item.tool_input ?? item.toolInput ?? item.entrada);
@@ -341,10 +373,14 @@ function toolFrom(raw: unknown, index: number): ToolActivity | null {
   if (!name && !input && !output) return null;
   return {
     id: firstText(item.id, item.step_id, `activity-${index}`),
+    turnId: options?.turnId,
     name: name || "Ferramenta da IA",
     input: input || undefined,
     output: output || undefined,
-    at: dateValue(item.timestamp ?? item.em ?? item.createdAt),
+    status: firstText(item.status, item.state) || undefined,
+    at: options?.at ?? dateValue(item.timestamp ?? item.em ?? item.createdAt),
+    source: options?.source || "firestore",
+    sequence: options?.sequence ?? index,
   };
 }
 
@@ -352,55 +388,32 @@ function normalizeConversation(raw: unknown, index: number): Conversation {
   const item = record(raw);
   const messages: NormalizedMessage[] = [];
   const activities: ToolActivity[] = [];
-  const addMessage = (value: unknown, forcedRole?: Role) => {
-    const message = messageFrom(value, messages.length, forcedRole);
-    if (message) messages.push(message);
-  };
-  const addTurn = (turn: unknown) => {
-    const value = record(turn);
-    addMessage(value.user_message ?? value.client_message ?? value.mensagem_cliente, "cliente");
-    addMessage(value.assistant_message ?? value.response ?? value.mensagem_assistente, "assistente");
-    for (const step of Array.isArray(value.steps) ? value.steps : []) {
-      const stepValue = record(step);
-      const kind = firstText(stepValue.type, stepValue.kind, stepValue.step_type).toUpperCase();
-      if (kind.includes("TOOL") || stepValue.tool_name || stepValue.toolName) {
-        const activity = toolFrom(stepValue, activities.length);
-        if (activity) activities.push(activity);
-      }
-      if (kind.includes("LLM") || stepValue.llm_output_preview || stepValue.llmOutputPreview) {
-        addMessage(stepValue, "assistente");
-      }
-    }
-  };
-
   const rawMessages = item.mensagens ?? item.messages;
-  if (Array.isArray(rawMessages)) rawMessages.forEach((message) => addMessage(message));
-  const turns = item.turns ?? item.turnos;
-  if (Array.isArray(turns)) turns.forEach(addTurn);
+  if (Array.isArray(rawMessages)) rawMessages.forEach((value, messageIndex) => {
+    const message = messageFrom(value, messageIndex);
+    if (message) messages.push(message);
+  });
   const rawSteps = item.steps;
-  if (Array.isArray(rawSteps)) rawSteps.forEach((step) => {
-    const activity = toolFrom(step, activities.length);
+  if (Array.isArray(rawSteps)) rawSteps.forEach((step, stepIndex) => {
+    const activity = toolFrom(step, stepIndex);
     if (activity) activities.push(activity);
   });
-
-  messages.sort((a, b) => (a.at?.getTime() || 0) - (b.at?.getTime() || 0));
-  activities.sort((a, b) => (a.at?.getTime() || 0) - (b.at?.getTime() || 0));
-
   const updatedAt = dateValue(item.atualizadoEm ?? item.updatedAt ?? item.lastMessageAt ?? item.timestamp) ||
-    messages[messages.length - 1]?.at || null;
+    messages.reduce<Date | null>((latest, message) => !latest || (message.at && message.at > latest) ? message.at : latest, null);
   const unreadValue = item.naoLidas ?? item.unreadCount ?? item.unread;
   const unread = typeof unreadValue === "boolean" ? (unreadValue ? 1 : 0) : Number(unreadValue) || 0;
-
   return {
-    id: firstText(item.id, item.numero, item.phone, `conversation-${index}`),
+    id: firstText(item.id, item.numero, item.phone, item.conversation_id, `conversation-${index}`),
     name: firstText(item.nome, item.name, item.customerName) || "Cliente",
     phone: firstText(item.numero, item.phone, item.user_phone_number, item.telefone),
+    bsuid: firstText(item.bsuid, item.user_bsuid, item.business_scoped_user_id) || undefined,
     status: firstText(item.status, item.conversationStatus) || "Ativa",
     updatedAt,
     unread,
     human: item.atendimentoHumano === true || firstText(item.modo, item.mode).toLowerCase() === "humano",
     messages,
     activities,
+    turns: Array.isArray(item.turns) ? item.turns : Array.isArray(item.turnos) ? item.turnos : [],
   };
 }
 
@@ -416,21 +429,169 @@ function normalizeRegister(raw: unknown, kind: "colaborador" | "parceiro", index
   return { id: firstText(item.id, item.numero, `register-${kind}-${index}`), title, subtitle, status: text(item.status) || undefined, details };
 }
 
-function normalizePayload(input: unknown): ApiPayload {
-  const root = record(input);
-  const rawConversations = Array.isArray(input) ? input : (root.conversas ?? root.conversations ?? root.data ?? []);
-  return {
-    conversations: Array.isArray(rawConversations) ? rawConversations.map(normalizeConversation) : [],
-    colaboradores: Array.isArray(root.colaboradores) ? root.colaboradores.map((value, index) => normalizeRegister(value, "colaborador", index)) : [],
-    parceiros: Array.isArray(root.parceiros) ? root.parceiros.map((value, index) => normalizeRegister(value, "parceiro", index)) : [],
-  };
-}
-
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "C";
 }
 
-function emptyState(icon: React.ReactNode, title: string, description: string) {
+function dedupeMessages(messages: NormalizedMessage[]): NormalizedMessage[] {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    const fallback = `${message.turnId || ""}|${message.at?.getTime() || 0}|${message.text}|${message.imageUrl || ""}`;
+    const key = message.messageId ? `message:${message.messageId}` : `fallback:${fallback}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeActivities(activities: ToolActivity[]): ToolActivity[] {
+  const seen = new Set<string>();
+  return activities.filter((activity) => {
+    const fallback = `${activity.turnId || ""}|${activity.at?.getTime() || 0}|${activity.name}|${activity.input || ""}|${activity.output || ""}`;
+    const key = activity.turnId && activity.id ? `step:${activity.turnId}:${activity.id}` : `fallback:${fallback}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function turnList(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const root = record(value);
+  if (Array.isArray(root.turns)) return root.turns;
+  if (Array.isArray(root.data)) return root.data;
+  if (Array.isArray(root.results)) return root.results;
+  return [];
+}
+
+function cursorFrom(value: unknown): PageCursor | null {
+  if (typeof value === "string") return { value, parameter: "url" };
+  if (!value || typeof value !== "object") return null;
+  const item = record(value);
+  if (text(item.url)) return { value: text(item.url), parameter: "url" };
+  if (text(item.before)) return { value: text(item.before), parameter: "before" };
+  if (text(item.after)) return { value: text(item.after), parameter: "after" };
+  if (text(item.cursor)) return { value: text(item.cursor), parameter: "cursor" };
+  if (text(item.next)) return cursorFrom(item.next);
+  return null;
+}
+
+function nextCursor(value: unknown): PageCursor | null {
+  const root = record(value);
+  const paging = record(root.paging);
+  return cursorFrom(root.next) || cursorFrom(paging.next) || cursorFrom(root.pagination && record(root.pagination).next);
+}
+
+function queryWithCursor(base: URLSearchParams, cursor: PageCursor | null): URLSearchParams {
+  if (!cursor) return base;
+  if (cursor.parameter !== "url") {
+    base.set(cursor.parameter, cursor.value);
+    return base;
+  }
+  try {
+    const parsed = new URL(cursor.value, window.location.origin);
+    parsed.searchParams.forEach((value, key) => base.set(key, value));
+  } catch {
+    base.set("before", cursor.value);
+  }
+  return base;
+}
+
+async function loadConversationTurns(phone: string, bsuid?: string): Promise<unknown[]> {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone && !bsuid) return [];
+  const turns: unknown[] = [];
+  const cursors = new Set<string>();
+  let cursor: PageCursor | null = null;
+  const limit = 100;
+
+  while (true) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (normalizedPhone) params.set("user_phone_number", normalizedPhone);
+    if (bsuid) params.set("bsuid", bsuid);
+    const requestParams = queryWithCursor(params, cursor);
+    const response = await fetch(`${CONVERSATION_TURNS_ENDPOINT}?${requestParams.toString()}`, { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`Conversation Turns respondeu ${response.status}.`);
+    const payload = await response.json() as unknown;
+    turns.push(...turnList(payload));
+    const next = nextCursor(payload);
+    if (!next || cursors.has(`${next.parameter}:${next.value}`)) break;
+    cursors.add(`${next.parameter}:${next.value}`);
+    cursor = next;
+  }
+  return turns;
+}
+
+function turnTimeline(turns: unknown[]): TimelineItem[] {
+  const items: TimelineItem[] = [];
+  turns.forEach((rawTurn, turnIndex) => {
+    const turn = record(rawTurn);
+    const turnId = firstText(turn.turn_id, turn.turnId) || undefined;
+    const messageId = firstText(turn.message_id, turn.messageId) || undefined;
+    const turnAt = dateValue(turn.timestamp ?? turn.created_at ?? turn.createdAt);
+    const clientRaw = turn.user_message ?? turn.userMessage ?? turn.client_message ?? turn.customer_message ?? turn.mensagem_cliente;
+    const client = clientRaw !== undefined ? messageFrom(clientRaw, turnIndex, "cliente", {
+      source: "meta",
+      turnId,
+      messageId,
+      at: turnAt,
+      sequence: turnIndex * 1000 - 1,
+    }) : null;
+    if (client) items.push({ kind: "message", id: `meta-client-${turnId || turnIndex}`, at: client.at, sequence: client.sequence, message: client });
+
+    const assistantRaw = turn.assistant_message ?? turn.assistantMessage ?? turn.response ?? turn.mensagem_assistente;
+    if (assistantRaw !== undefined && !Array.isArray(assistantRaw)) {
+      const assistant = messageFrom(assistantRaw, turnIndex, "assistente", {
+        source: "meta",
+        turnId,
+        messageId: firstText(record(assistantRaw).message_id, record(assistantRaw).messageId) || messageId,
+        at: turnAt,
+        sequence: turnIndex * 1000,
+      });
+      if (assistant) items.push({ kind: "message", id: `meta-assistant-${turnId || turnIndex}`, at: assistant.at, sequence: assistant.sequence, message: assistant });
+    }
+
+    const steps = Array.isArray(turn.steps) ? turn.steps : [];
+    steps.forEach((rawStep, stepIndex) => {
+      const step = record(rawStep);
+      const kind = firstText(step.type, step.kind, step.step_type).toUpperCase();
+      const stepAt = dateValue(step.timestamp ?? step.created_at ?? step.createdAt) || turnAt;
+      if (kind.includes("TOOL") || step.tool_name || step.toolName) {
+        const activity = toolFrom(step, stepIndex, { source: "meta", turnId, at: stepAt, sequence: turnIndex * 1000 + stepIndex });
+        if (activity) items.push({ kind: "activity", id: `meta-tool-${turnId || turnIndex}-${stepIndex}`, at: activity.at, sequence: activity.sequence, activity });
+      }
+      if ((kind.includes("LLM") || step.llm_output_preview || step.llmOutputPreview) && firstText(step.llm_output_preview, step.llmOutputPreview)) {
+        const message = messageFrom(step, stepIndex, "assistente", {
+          source: "meta",
+          turnId,
+          messageId: firstText(step.message_id, step.messageId) || undefined,
+          at: stepAt,
+          sequence: turnIndex * 1000 + stepIndex,
+        });
+        if (message) items.push({ kind: "message", id: `meta-llm-${turnId || turnIndex}-${stepIndex}`, at: message.at, sequence: message.sequence, message });
+      }
+    });
+  });
+  return items;
+}
+
+function consolidate(selected: Conversation, turns: unknown[]): TimelineItem[] {
+  const firestoreMessages = dedupeMessages(selected.messages);
+  const firestoreActivities = dedupeActivities(selected.activities);
+  const metaItems = turnTimeline(turns);
+  const messages = dedupeMessages([...firestoreMessages, ...metaItems.filter((item): item is Extract<TimelineItem, { kind: "message" }> => item.kind === "message").map((item) => item.message)]);
+  const activities = dedupeActivities([...firestoreActivities, ...metaItems.filter((item): item is Extract<TimelineItem, { kind: "activity" }> => item.kind === "activity").map((item) => item.activity)]);
+  const merged: TimelineItem[] = [
+    ...messages.map((message) => ({ kind: "message" as const, id: message.id, at: message.at, sequence: message.sequence, message })),
+    ...activities.map((activity) => ({ kind: "activity" as const, id: activity.id, at: activity.at, sequence: activity.sequence, activity })),
+  ];
+  return merged.sort((a, b) => {
+    const at = (a.at?.getTime() || 0) - (b.at?.getTime() || 0);
+    return at || a.sequence - b.sequence;
+  });
+}
+
+function emptyState(icon: ReactNode, title: string, description: string) {
   return <div className="wa-empty"><div className="wa-empty-icon">{icon}</div><strong>{title}</strong><p>{description}</p></div>;
 }
 
@@ -445,27 +606,52 @@ function ChatView({
   loading: boolean;
   onRefresh: () => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
   const [image, setImage] = useState("");
+  const [turns, setTurns] = useState<unknown[]>([]);
+  const [turnsLoading, setTurnsLoading] = useState(false);
+  const [turnsError, setTurnsError] = useState("");
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) || conversations[0] || null;
   const filtered = useMemo(() => {
-    const term = query.trim().toLowerCase();
+    const term = queryText.trim().toLowerCase();
     if (!term) return conversations;
     return conversations.filter((conversation) => [
       conversation.name,
       conversation.phone,
       ...conversation.messages.map((item) => item.text),
     ].join(" ").toLowerCase().includes(term));
-  }, [conversations, query]);
+  }, [conversations, queryText]);
 
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id);
   }, [selected, selectedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected) {
+      setTurns([]);
+      return;
+    }
+    setTurnsLoading(true);
+    setTurnsError("");
+    setTurns(selected.turns);
+    void loadConversationTurns(selected.phone, selected.bsuid)
+      .then((result) => { if (!cancelled) setTurns(result.length ? result : selected.turns); })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          console.error("Erro ao carregar Conversation Turns:", reason);
+          setTurns(selected.turns);
+          setTurnsError("O histórico do Meta Business Agent não pôde ser carregado agora.");
+        }
+      })
+      .finally(() => { if (!cancelled) setTurnsLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected?.id, selected?.phone, selected?.bsuid]);
 
   async function toggleHuman() {
     if (!selected || changingMode) return;
@@ -498,21 +684,21 @@ function ChatView({
     }
   }
 
-  const groupedMessages = useMemo(() => {
-    if (!selected) return [];
-    const groups: Array<{ date: string; items: NormalizedMessage[] }> = [];
-    selected.messages.forEach((item) => {
+  const timeline = useMemo(() => selected ? consolidate(selected, turns) : [], [selected, turns]);
+  const groupedTimeline = useMemo(() => {
+    const groups: Array<{ date: string; items: TimelineItem[] }> = [];
+    timeline.forEach((item) => {
       const date = formatDate(item.at) || "Data não informada";
       const previous = groups[groups.length - 1];
       if (!previous || previous.date !== date) groups.push({ date, items: [item] });
       else previous.items.push(item);
     });
     return groups;
-  }, [selected]);
+  }, [timeline]);
 
   return (
     <>
-      {error && <div className="wa-alert"><AlertCircle size={15} />{error}</div>}
+      {(error || turnsError) && <div className="wa-alert"><AlertCircle size={15} />{error || turnsError}</div>}
       <div className="wa-surface wa-chat">
         <aside className="wa-list">
           <div className="wa-list-head">
@@ -520,10 +706,10 @@ function ChatView({
               <div><h2>Conversas</h2><p>Atendimento Águia Express</p></div>
               <button className="wa-icon-button" title="Atualizar conversas" onClick={onRefresh}><RefreshCw size={14} /></button>
             </div>
-            <div className="wa-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conversa..." /></div>
+            <div className="wa-search"><Search size={14} /><input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="Pesquisar conversa..." /></div>
           </div>
           <div className="wa-list-body">
-            {loading ? <div className="wa-loading"><LoaderCircle size={20} className="wa-spin" /></div> : filtered.length === 0 ? emptyState(<MessageCircle size={20} />, "Nenhuma conversa encontrada", "As conversas disponibilizadas pelo atendimento aparecerão aqui.") : filtered.map((conversation) => {
+            {loading ? <div className="wa-loading"><LoaderCircle size={20} /></div> : filtered.length === 0 ? emptyState(<MessageCircle size={20} />, "Nenhuma conversa encontrada", "As conversas disponibilizadas pelo atendimento aparecerão aqui.") : filtered.map((conversation) => {
               const last = conversation.messages[conversation.messages.length - 1];
               return <button key={conversation.id} className={`wa-conversation ${selected?.id === conversation.id ? "active" : ""}`} onClick={() => setSelectedId(conversation.id)}>
                 <div className="wa-avatar">{initials(conversation.name)}</div>
@@ -544,18 +730,22 @@ function ChatView({
               <div className="wa-head-actions"><div className={`wa-automation ${selected.human ? "human" : ""}`}><span className="wa-automation-dot" />{selected.human ? "Atendimento humano" : "Meta Business Agent"}</div><button className="wa-takeover" disabled={changingMode} onClick={toggleHuman}>{changingMode ? "Atualizando..." : selected.human ? "Devolver à IA" : "Assumir atendimento"}</button></div>
             </header>
             <div className="wa-messages"><div className="wa-thread">
-              {groupedMessages.length === 0 ? emptyState(<MessageCircle size={20} />, "Sem mensagens disponíveis", "O histórico desta conversa ainda não foi consolidado.") : groupedMessages.map((group) => <div key={group.date}>
+              {turnsLoading && <div className="wa-loading"><LoaderCircle size={20} /></div>}
+              {!turnsLoading && groupedTimeline.length === 0 && emptyState(<MessageCircle size={20} />, "Sem mensagens disponíveis", "O histórico desta conversa ainda não foi consolidado.")}
+              {!turnsLoading && groupedTimeline.map((group) => <div key={group.date}>
                 <div className="wa-date">{group.date}</div>
-                {group.items.map((item) => <div key={item.id} className={`wa-message-row ${item.role}`}>
-                  <div className={`wa-bubble ${item.role}`}>
-                    <div className="wa-role">{item.role === "assistente" ? <><Bot size={11} />{item.human ? "Atendimento humano" : "Meta Business Agent"}</> : <><UserRound size={11} />Cliente</>}</div>
-                    {item.imageUrl && <img className="wa-message-image" src={item.imageUrl} alt="Imagem enviada na conversa" onClick={() => setImage(item.imageUrl || "")} />}
-                    {item.text && <div className="wa-message-text">{item.text}</div>}
-                    <div className="wa-message-time">{formatTime(item.at)}</div>
+                {group.items.map((item) => item.kind === "message" ? <div key={item.id} className={`wa-message-row ${item.message.role}`}>
+                  <div className={`wa-bubble ${item.message.role}`}>
+                    <div className="wa-role">{item.message.role === "assistente" ? <><Bot size={11} />{item.message.human ? "Atendimento humano" : "Meta Business Agent"}</> : <><UserRound size={11} />Cliente</>}</div>
+                    {item.message.imageUrl && <img className="wa-message-image" src={item.message.imageUrl} alt="Imagem enviada na conversa" onClick={() => setImage(item.message.imageUrl || "")} />}
+                    {item.message.text && <div className="wa-message-text">{item.message.text}</div>}
+                    <div className="wa-message-time">{formatTime(item.message.at)}</div>
                   </div>
-                </div>)}
+                </div> : <details className="wa-activity" key={item.id}>
+                  <summary><Wrench size={13} /> Atividade da IA: {item.activity.name}<span className="wa-activity-status">{item.activity.status || ""}</span><ChevronDown size={13} /></summary>
+                  <div className="wa-activity-body">{item.activity.input && <><span className="wa-activity-label">Entrada</span>{item.activity.input}</>}{item.activity.output && <><span className="wa-activity-label">Resultado</span>{item.activity.output}</>}</div>
+                </details>)}
               </div>)}
-              {selected.activities.map((activity) => <details className="wa-activity" key={activity.id}><summary><Wrench size={13} /> Atividade da IA: {activity.name}<ChevronDown size={13} /></summary><div className="wa-activity-body">{activity.input && <><span className="wa-activity-label">Entrada</span>{activity.input}</>}{activity.output && <><span className="wa-activity-label">Resultado</span>{activity.output}</>}</div></details>)}
             </div></div>
             {selected.human ? <div className="wa-compose"><textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Digite uma mensagem..." /><button className="wa-send" disabled={!message.trim() || sending} onClick={() => void sendMessage()}>{sending ? <LoaderCircle size={16} /> : <Send size={16} />}</button></div> : <div className="wa-compose-note">Assuma o atendimento para enviar uma mensagem manual pelo site.</div>}
           </>}
@@ -567,13 +757,13 @@ function ChatView({
 }
 
 function RegisterView({ items, type }: { items: RegisterItem[]; type: "colaboradores" | "parceiros" }) {
-  const [query, setQuery] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [selectedId, setSelectedId] = useState("");
-  const filtered = items.filter((item) => `${item.title} ${item.subtitle} ${item.status || ""}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = items.filter((item) => `${item.title} ${item.subtitle} ${item.status || ""}`.toLowerCase().includes(queryText.toLowerCase()));
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || null;
   const partner = type === "parceiros";
   return <div className="wa-surface wa-register">
-    <aside className="wa-register-list"><div className="wa-register-header"><div className="wa-section-heading"><div><h2>{partner ? "Parceiros" : "Colaboradores"}</h2><p>{partner ? "Solicitações recebidas pelo WhatsApp" : "Cadastros recebidos pelo WhatsApp"}</p></div></div><div className="wa-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar..." /></div></div><div className="wa-register-items">{filtered.length ? filtered.map((item) => <button key={item.id} className={`wa-register-item ${selected?.id === item.id ? "active" : ""}`} onClick={() => setSelectedId(item.id)}><div className="wa-register-avatar">{partner ? <Building2 size={16} /> : <UsersRound size={16} />}</div><div><div className="wa-register-title">{item.title}</div><div className="wa-register-subtitle">{item.subtitle}</div></div></button>) : emptyState(partner ? <Building2 size={20} /> : <UsersRound size={20} />, `Nenhum ${partner ? "parceiro" : "colaborador"} encontrado`, "Os dados disponibilizados pelo atendimento aparecerão aqui.")}</div></aside>
+    <aside className="wa-register-list"><div className="wa-register-header"><div className="wa-section-heading"><div><h2>{partner ? "Parceiros" : "Colaboradores"}</h2><p>{partner ? "Solicitações recebidas pelo WhatsApp" : "Cadastros recebidos pelo WhatsApp"}</p></div></div><div className="wa-search"><Search size={14} /><input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="Pesquisar..." /></div></div><div className="wa-register-items">{filtered.length ? filtered.map((item) => <button key={item.id} className={`wa-register-item ${selected?.id === item.id ? "active" : ""}`} onClick={() => setSelectedId(item.id)}><div className="wa-register-avatar">{partner ? <Building2 size={16} /> : <UsersRound size={16} />}</div><div><div className="wa-register-title">{item.title}</div><div className="wa-register-subtitle">{item.subtitle}</div></div></button>) : emptyState(partner ? <Building2 size={20} /> : <UsersRound size={20} />, `Nenhum ${partner ? "parceiro" : "colaborador"} encontrado`, "Os dados disponibilizados pelo atendimento aparecerão aqui.")}</div></aside>
     <section className="wa-register-detail">{!selected ? emptyState(partner ? <Building2 size={22} /> : <UsersRound size={22} />, `Selecione ${partner ? "um parceiro" : "um colaborador"}`, "Escolha um cadastro na lista para visualizar os detalhes.") : <><div className="wa-detail-head"><div className="wa-detail-person"><div className="wa-detail-avatar">{partner ? <Building2 size={22} /> : <UsersRound size={22} />}</div><div><h2>{selected.title}</h2><p>{selected.subtitle}</p></div></div>{selected.status && <span className="wa-status">{selected.status}</span>}</div><div className="wa-detail-grid">{selected.details.map(([label, value]) => <div className="wa-detail-card" key={`${label}-${value}`}><div className="wa-detail-label">{label.replace(/([A-Z])/g, " $1")}</div><div className="wa-detail-value">{value || "—"}</div></div>)}</div></>}</section>
   </div>;
 }
@@ -581,104 +771,78 @@ function RegisterView({ items, type }: { items: RegisterItem[]; type: "colaborad
 export default function WhatsApp() {
   const [tab, setTab] = useState<Tab>("chat");
   const [payload, setPayload] = useState<ApiPayload>({ conversations: [], colaboradores: [], parceiros: [] });
+  const [conversationRecords, setConversationRecords] = useState<UnknownRecord[]>([]);
+  const [subcollectionMessages, setSubcollectionMessages] = useState<Record<string, unknown[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-
-  function loadData() {
-    setLoading(true);
-    setError("");
-
-    const referencia = collection(db, "whatsapp_conversas");
-
-    // IMPORTANTE: não usar orderBy no Firestore aqui.
-    // orderBy("atualizadoEm") exclui documentos que não possuem esse campo.
-    // Todos os documentos são carregados e a ordenação é feita no cliente.
-    const consulta = query(referencia);
-
-    return onSnapshot(
-      consulta,
-      (snapshot) => {
-        const conversations = snapshot.docs
-          .map((item, index) => {
-            const data = item.data() as UnknownRecord;
-            return normalizeConversation({ ...data, id: item.id }, index);
-          })
-          .sort((a, b) => {
-            const aTime = a.updatedAt?.getTime() || 0;
-            const bTime = b.updatedAt?.getTime() || 0;
-            return bTime - aTime;
-          });
-
-        setPayload((current) => ({
-          ...current,
-          conversations,
-        }));
-        setLastUpdate(new Date());
-        setLoading(false);
-      },
-      (snapshotError) => {
-        console.error("Erro ao carregar WhatsApp:", snapshotError);
-        setError("Não foi possível carregar as conversas agora.");
-        setLoading(false);
-      }
-    );
-  }
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
-    const referencia = collection(db, "candidatos_entregadores");
+    const unsubscribe = onSnapshot(query(collection(db, "whatsapp_conversas")), (snapshot) => {
+      setConversationRecords(snapshot.docs.map((item) => ({ ...item.data(), id: item.id })));
+      setLastUpdate(new Date());
+      setLoading(false);
+      setError("");
+    }, (snapshotError) => {
+      console.error("Erro ao carregar WhatsApp:", snapshotError);
+      setError("Não foi possível carregar as conversas agora.");
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, [refreshToken]);
 
-    return onSnapshot(
-      referencia,
-      (snapshot) => {
-        const colaboradores = snapshot.docs
-          .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "colaborador", index))
-          .sort((a, b) => {
-            const aRaw = record(a);
-            const bRaw = record(b);
-            return String(aRaw.id || "").localeCompare(String(bRaw.id || ""));
-          });
+  useEffect(() => {
+    const listeners = new Map<string, () => void>();
+    conversationRecords.forEach((conversation) => {
+      const id = firstText(conversation.id);
+      if (!id) return;
+      const reference = collection(db, "whatsapp_conversas", id, "mensagens");
+      const unsubscribe = onSnapshot(reference, (snapshot) => {
+        setSubcollectionMessages((current) => ({ ...current, [id]: snapshot.docs.map((item) => ({ ...item.data(), id: item.id })) }));
+      }, (snapshotError) => {
+        console.error(`Erro ao carregar mensagens da conversa ${id}:`, snapshotError);
+      });
+      listeners.set(id, unsubscribe);
+    });
+    return () => listeners.forEach((unsubscribe) => unsubscribe());
+  }, [conversationRecords]);
 
-        setPayload((current) => ({ ...current, colaboradores }));
-      },
-      (snapshotError) => {
-        console.error("Erro ao carregar colaboradores:", snapshotError);
-      }
-    );
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "candidatos_entregadores"), (snapshot) => {
+      const colaboradores = snapshot.docs
+        .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "colaborador", index))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      setPayload((current) => ({ ...current, colaboradores }));
+    }, (snapshotError) => console.error("Erro ao carregar colaboradores:", snapshotError));
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
-    const referencia = collection(db, "solicitacoes_parceiros");
-
-    return onSnapshot(
-      referencia,
-      (snapshot) => {
-        const parceiros = snapshot.docs
-          .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "parceiro", index))
-          .sort((a, b) => {
-            const aRaw = record(a);
-            const bRaw = record(b);
-            return String(aRaw.id || "").localeCompare(String(bRaw.id || ""));
-          });
-
-        setPayload((current) => ({ ...current, parceiros }));
-      },
-      (snapshotError) => {
-        console.error("Erro ao carregar parceiros:", snapshotError);
-      }
-    );
+    const unsubscribe = onSnapshot(collection(db, "solicitacoes_parceiros"), (snapshot) => {
+      const parceiros = snapshot.docs
+        .map((item, index) => normalizeRegister({ ...item.data(), id: item.id }, "parceiro", index))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      setPayload((current) => ({ ...current, parceiros }));
+    }, (snapshotError) => console.error("Erro ao carregar parceiros:", snapshotError));
+    return unsubscribe;
   }, []);
 
-  const active = payload.conversations.filter((conversation) => conversation.status.toLowerCase() !== "encerrada" && conversation.status.toLowerCase() !== "fechada").length;
-  const unread = payload.conversations.reduce((total, conversation) => total + conversation.unread, 0);
-  const latest = payload.conversations.reduce<Date | null>((latestValue, conversation) => !latestValue || (conversation.updatedAt && conversation.updatedAt > latestValue) ? conversation.updatedAt : latestValue, lastUpdate);
+  const conversations = useMemo(() => conversationRecords.map((raw, index) => {
+    const id = firstText(raw.id);
+    const embeddedMessages = Array.isArray(raw.mensagens) ? raw.mensagens : Array.isArray(raw.messages) ? raw.messages : [];
+    return normalizeConversation({ ...raw, mensagens: [...embeddedMessages, ...(subcollectionMessages[id] || [])] }, index);
+  }).sort((a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0)), [conversationRecords, subcollectionMessages]);
+
+  const active = conversations.filter((conversation) => !["encerrada", "fechada"].includes(conversation.status.toLowerCase())).length;
+  const unread = conversations.reduce((total, conversation) => total + conversation.unread, 0);
+  const latest = conversations.reduce<Date | null>((latestValue, conversation) => !latestValue || (conversation.updatedAt && conversation.updatedAt > latestValue) ? conversation.updatedAt : latestValue, lastUpdate);
 
   return <><style>{css}</style><main className="wa-page"><div className="wa-wrap">
-    <header className="wa-hero"><div><div className="wa-kicker"><span className="wa-kicker-dot" /> Central de atendimento</div><h1 className="wa-title">WhatsApp</h1><p className="wa-subtitle">Atendimento Águia Express</p></div><div className="wa-metrics"><div className="wa-metric"><span className="wa-metric-label">Conversas</span><span className="wa-metric-value">{payload.conversations.length}</span></div><div className="wa-metric"><span className="wa-metric-label">Ativas</span><span className="wa-metric-value">{active}</span></div><div className="wa-metric"><span className="wa-metric-label">Não lidas</span><span className="wa-metric-value">{unread}</span></div><div className="wa-metric"><span className="wa-metric-label">Última atualização</span><span className="wa-metric-value small">{latest ? formatTime(latest) : "Aguardando"}</span></div></div></header>
-    <nav className="wa-tabs" aria-label="Áreas do atendimento"><button className={`wa-tab ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}><MessageCircle size={14} /> Chat <span className="wa-tab-count">{payload.conversations.length}</span></button><button className={`wa-tab ${tab === "colaboradores" ? "active" : ""}`} onClick={() => setTab("colaboradores")}><UsersRound size={14} /> Colaboradores <span className="wa-tab-count">{payload.colaboradores.length}</span></button><button className={`wa-tab ${tab === "parceiros" ? "active" : ""}`} onClick={() => setTab("parceiros")}><Building2 size={14} /> Parceiros <span className="wa-tab-count">{payload.parceiros.length}</span></button></nav>
-    {tab === "chat" && <ChatView conversations={payload.conversations} error={error} loading={loading} onRefresh={() => {}} />}
+    <header className="wa-hero"><div><div className="wa-kicker"><span className="wa-kicker-dot" /> Central de atendimento</div><h1 className="wa-title">WhatsApp</h1><p className="wa-subtitle">Atendimento Águia Express</p></div><div className="wa-metrics"><div className="wa-metric"><span className="wa-metric-label">Conversas</span><span className="wa-metric-value">{conversations.length}</span></div><div className="wa-metric"><span className="wa-metric-label">Ativas</span><span className="wa-metric-value">{active}</span></div><div className="wa-metric"><span className="wa-metric-label">Não lidas</span><span className="wa-metric-value">{unread}</span></div><div className="wa-metric"><span className="wa-metric-label">Última atualização</span><span className="wa-metric-value small">{latest ? formatTime(latest) : "Aguardando"}</span></div></div></header>
+    <nav className="wa-tabs" aria-label="Áreas do atendimento"><button className={`wa-tab ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}><MessageCircle size={14} /> Chat <span className="wa-tab-count">{conversations.length}</span></button><button className={`wa-tab ${tab === "colaboradores" ? "active" : ""}`} onClick={() => setTab("colaboradores")}><UsersRound size={14} /> Colaboradores <span className="wa-tab-count">{payload.colaboradores.length}</span></button><button className={`wa-tab ${tab === "parceiros" ? "active" : ""}`} onClick={() => setTab("parceiros")}><Building2 size={14} /> Parceiros <span className="wa-tab-count">{payload.parceiros.length}</span></button></nav>
+    {tab === "chat" && <ChatView conversations={conversations} error={error} loading={loading} onRefresh={() => setRefreshToken((value) => value + 1)} />}
     {tab === "colaboradores" && <RegisterView items={payload.colaboradores} type="colaboradores" />}
     {tab === "parceiros" && <RegisterView items={payload.parceiros} type="parceiros" />}
-    <div style={{ display: "none" }}><Activity /><ArrowUpRight /><Check /><Clock3 /><ImageIcon /><Paperclip /><Phone /></div>
   </div></main></>;
 }

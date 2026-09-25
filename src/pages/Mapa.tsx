@@ -659,6 +659,17 @@ function pacotesDaRegiao(regiao: RegiaoMapa, pacotes: Pacote[]) {
   });
 }
 
+function pontosMeio(pontos: PontoRegiao[]) {
+  if (pontos.length < 2) return [];
+  return pontos.map((ponto, index) => {
+    const proximo = pontos[(index + 1) % pontos.length];
+    return [
+      (ponto[0] + proximo[0]) / 2,
+      (ponto[1] + proximo[1]) / 2,
+    ] as PontoRegiao;
+  });
+}
+
 function MapaClique({
   ativo,
   onClique,
@@ -1161,6 +1172,56 @@ export default function Mapa() {
     setRegiaoSelecionada(regiao);
   }
 
+  function finalizarDesenho() {
+    if (pontosDesenho.length < 3) {
+      setErro("Marque pelo menos 3 pontos para fechar a região.");
+      return;
+    }
+    setErro("");
+    setDesenhando(false);
+  }
+
+  function atualizarPontoNovo(index: number, ponto: PontoRegiao) {
+    setPontosDesenho((atual) => atual.map((p, i) => i === index ? ponto : p));
+  }
+
+  function removerPontoNovo(index: number) {
+    setPontosDesenho((atual) => {
+      if (atual.length <= 3) {
+        setErro("A região precisa manter pelo menos 3 pontos.");
+        return atual;
+      }
+      return atual.filter((_, i) => i !== index);
+    });
+  }
+
+  function inserirVertice(indexApos: number, ponto: PontoRegiao) {
+    setRegiaoEditando((atual) => {
+      if (!atual) return atual;
+      const pontos = [...atual.pontos];
+      pontos.splice(indexApos, 0, ponto);
+      return { ...atual, pontos };
+    });
+  }
+
+  function inserirVerticeNovo(indexApos: number, ponto: PontoRegiao) {
+    setPontosDesenho((atual) => {
+      const pontos = [...atual];
+      pontos.splice(indexApos, 0, ponto);
+      return pontos;
+    });
+  }
+
+  function removerVerticeEditando(index: number) {
+    setRegiaoEditando((atual) => {
+      if (!atual || atual.pontos.length <= 3) {
+        setErro("A região precisa manter pelo menos 3 pontos.");
+        return atual;
+      }
+      return { ...atual, pontos: atual.pontos.filter((_, i) => i !== index) };
+    });
+  }
+
   async function salvarRegiao() {
     if (!isAdmin) return;
     const pontos = regiaoEditando?.pontos || pontosDesenho;
@@ -1388,13 +1449,18 @@ export default function Mapa() {
       </div>
 
       {isAdmin && modoRegiao && (
-        <div style={{ margin: "10px 0", padding: "12px 14px", borderRadius: 12, background: "#eef5ff", color: "#175cd3", fontSize: 13 }}>
-          {desenhando
-            ? `Modo desenho ativo: clique no mapa para adicionar os pontos da região. ${pontosDesenho.length} ponto(s).`
-            : "Modo edição ativo: arraste os pontos da região para alterar o desenho."}
+        <div style={{ margin: "10px 0", padding: "12px 14px", borderRadius: 12, background: "#eef5ff", color: "#175cd3", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <strong>{desenhando ? "Desenhando região" : "Editando região"}</strong>
+            <div style={{ marginTop: 3 }}>
+              {desenhando
+                ? "Clique para criar os pontos. Arraste os pontos para ajustar. Clique em um ponto com o botão direito para remover."
+                : "Arraste os pontos para aumentar ou reduzir a área. Clique nos pontos menores entre os vértices para adicionar novos pontos."}
+            </div>
+          </div>
           {desenhando && pontosDesenho.length >= 3 && (
-            <button className="secondary" style={{ marginLeft: 10 }} onClick={() => setDesenhando(false)}>
-              <Check size={14} /> Fechar desenho
+            <button className="primary" onClick={finalizarDesenho}>
+              <Check size={14} /> Finalizar desenho
             </button>
           )}
         </div>
@@ -1402,47 +1468,12 @@ export default function Mapa() {
 
       <div className="map-summary">
         <div><MapPinned size={17} /><b>{pontos.length}</b><span>pontos exibidos</span></div>
-        <div><Users size={17} /><b>{usuariosAtivos.length}</b><span>usuários ativos no período</span></div>
         <div><Package size={17} /><b>{semCoordenadas}</b><span>coordenadas inválidas</span></div>
         <div><MapIcon size={17} /><b>{regioes.length}</b><span>regiões salvas</span></div>
       </div>
 
-      <div className="map-layout">
-        <aside className="map-users-panel">
-          <div className="map-panel-head"><b>Usuários ativos</b><span>{usuariosAtivos.length}</span></div>
-          <button className={`map-user-row ${usuario === "TODOS" ? "active" : ""}`} onClick={() => setUsuario("TODOS")}>
-            <span className="map-user-dot all" /><span>Todos</span><b>{pontos.length}</b>
-          </button>
-          {usuariosAtivos.map((u) => {
-            const total = pontos.filter((p) => p.usuarioMapa === u).length;
-            return (
-              <button key={u} className={`map-user-row ${usuario === u ? "active" : ""}`} onClick={() => setUsuario(u)}>
-                <span className="map-user-dot" style={{ background: corUsuario(u, usuariosAtivos) }} />
-                <span title={u}>{nomeUsuario(u, nomes)}</span><b>{total}</b>
-              </button>
-            );
-          })}
-          <div className="map-legend">
-            <b>Legenda dos pacotes</b>
-            <span><i className="legend-ml">ML</i>Mercado Livre</span>
-            <span><i className="legend-shopee">S</i>Shopee</span>
-            <span><i className="legend-avulso">A</i>Avulso</span>
-          </div>
-
-          <div style={{ marginTop: 14, borderTop: "1px solid #eaecf0", paddingTop: 12 }}>
-            <div className="map-panel-head"><b>Regiões</b><span>{regioes.length}</span></div>
-            {carregandoRegioes && <div style={{ padding: 10, fontSize: 12, color: "#667085" }}>Carregando...</div>}
-            {regioes.map((r) => (
-              <button key={r.id} className="map-user-row" onClick={() => setRegiaoSelecionada(r)}>
-                <span className="map-user-dot" style={{ background: r.cor }} />
-                <span title={r.nome}>{r.nome}</span>
-                <b>{pacotesDaRegiao(r, items).length}</b>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <div className="map-card">
+      <div className="map-layout" style={{ display: "block" }}>
+        <div className="map-card" style={{ height: "calc(100vh - 250px)", minHeight: 650 }}>
           <MapContainer center={[-23.511, -46.876]} zoom={12} style={{ height: "100%", width: "100%" }}>
             <TileLayer
               attribution="&copy; OpenStreetMap contributors &copy; CARTO"
@@ -1463,27 +1494,69 @@ export default function Mapa() {
               />
             ))}
 
-            {modoRegiao && desenhando && pontosDesenho.length >= 2 && (
-              <Polygon positions={pontosDesenho} pathOptions={{ color: corRegiao, fillColor: corRegiao, fillOpacity: 0.12, dashArray: "6 6", weight: 2 }} />
+            {modoRegiao && (regiaoEditando || pontosDesenho.length >= 2) && (
+              <Polygon
+                positions={regiaoEditando?.pontos || pontosDesenho}
+                pathOptions={{ color: corRegiao, fillColor: corRegiao, fillOpacity: 0.10, dashArray: desenhando ? "6 6" : undefined, weight: 2 }}
+              />
             )}
 
-            {modoRegiao && regiaoEditando && regiaoEditando.pontos.map((p, index) => (
+            {modoRegiao && regiaoEditando && (
+              <>
+                {pontosMeio(regiaoEditando.pontos).map((p, index) => (
+                  <Marker
+                    key={`meio-${regiaoEditando.id}-${index}`}
+                    position={p}
+                    icon={L.divIcon({ className: "", html: `<div style="width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid ${corRegiao};box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })}
+                    eventHandlers={{ click: () => inserirVertice(index + 1, p) }}
+                  />
+                ))}
+                {regiaoEditando.pontos.map((p, index) => (
+                  <Marker
+                    key={`${regiaoEditando.id}-vertice-${index}`}
+                    position={p}
+                    draggable
+                    eventHandlers={{
+                      dragend: (event) => {
+                        const marker = event.target as L.Marker;
+                        const pos = marker.getLatLng();
+                        atualizarVertice(index, [pos.lat, pos.lng]);
+                      },
+                      contextmenu: () => removerVerticeEditando(index),
+                    }}
+                    icon={L.divIcon({ className: "", html: `<div style="width:14px;height:14px;border-radius:50%;background:${corRegiao};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] })}
+                  />
+                ))}
+              </>
+            )}
+
+            {modoRegiao && !regiaoEditando && pontosDesenho.map((p, index) => (
               <Marker
-                key={`${regiaoEditando.id}-vertice-${index}`}
+                key={`desenho-${index}`}
                 position={p}
                 draggable
-                eventHandlers={{ dragend: (event) => {
-                  const marker = event.target as L.Marker;
-                  const pos = marker.getLatLng();
-                  atualizarVertice(index, [pos.lat, pos.lng]);
-                }}}
-                icon={L.divIcon({ className: "", html: `<div style="width:12px;height:12px;border-radius:50%;background:${corRegiao};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] })}
+                eventHandlers={{
+                  dragend: (event) => {
+                    const marker = event.target as L.Marker;
+                    const pos = marker.getLatLng();
+                    atualizarPontoNovo(index, [pos.lat, pos.lng]);
+                  },
+                  contextmenu: () => removerPontoNovo(index),
+                }}
+                icon={L.divIcon({ className: "", html: `<div style="width:14px;height:14px;border-radius:50%;background:${corRegiao};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] })}
               />
             ))}
 
-            {modoRegiao && desenhando && pontosDesenho.map((p, index) => (
-              <Marker key={`desenho-${index}`} position={p} icon={L.divIcon({ className: "", html: `<div style="width:10px;height:10px;border-radius:50%;background:${corRegiao};border:2px solid #fff"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })} />
-            ))}
+            {modoRegiao && !regiaoEditando && !desenhando && pontosDesenho.length >= 3 && (
+              pontosMeio(pontosDesenho).map((p, index) => (
+                <Marker
+                  key={`meio-novo-${index}`}
+                  position={p}
+                  icon={L.divIcon({ className: "", html: `<div style="width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid ${corRegiao};box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })}
+                  eventHandlers={{ click: () => inserirVerticeNovo(index + 1, p) }}
+                />
+              ))
+            )}
 
             {pontos.map((p) => (
               <Marker key={p.id} position={[p.lat, p.lng]} icon={criarIcone(p)}>

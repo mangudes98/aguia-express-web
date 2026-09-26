@@ -1259,6 +1259,40 @@ function Scanner({
   );
 }
 
+type FiltroStatus = "todos" | "branco" | "azul" | "vermelho";
+
+function compararPelaEntrada(a: Code, b: Code) {
+  const timestamp = (value: any) => {
+    if (value?.toMillis) return value.toMillis();
+    if (value?.toDate) return value.toDate().getTime();
+
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const dataA = timestamp(a.data);
+  const dataB = timestamp(b.data);
+
+  if (dataA !== null && dataB !== null && dataA !== dataB) {
+    return dataA - dataB;
+  }
+
+  if (dataA !== null && dataB === null) return -1;
+  if (dataA === null && dataB !== null) return 1;
+
+  return a.id.localeCompare(b.id);
+}
+
+function fazParteDoFiltro(item: Code, filtro: FiltroStatus) {
+  const erro = item.erro === true;
+  const subiu = item.subiu === true;
+
+  if (filtro === "branco") return !erro && !subiu;
+  if (filtro === "azul") return subiu;
+  if (filtro === "vermelho") return erro;
+  return true;
+}
+
 function ListaTipo({
   pastaId,
   tipo: filter,
@@ -1271,6 +1305,8 @@ function ListaTipo({
   const [selected, setSelected] = useState<string[]>([]);
   const [visual, setVisual] = useState(false);
   const [index, setIndex] = useState(0);
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>("todos");
+  const codigoPendente = useRef<string | null>(null);
 
   useEffect(() => {
     return onSnapshot(
@@ -1285,13 +1321,11 @@ function ListaTipo({
             .map<Code>(
               x => ({ id: x.id, ...x.data() }) as Code
             )
-            .filter(
-              x => tipo(x.codigo || x.id) === filter
-            )
-            .sort(
-              (a, b) =>
-                Number(a.erro) - Number(b.erro) ||
-                Number(a.subiu) - Number(b.subiu)
+            .sort(compararPelaEntrada)
+            .filter(x =>
+              String(x.tipo || "")
+                .toUpperCase()
+                .includes(filter.toUpperCase())
             )
         );
       }
@@ -1303,24 +1337,40 @@ function ListaTipo({
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "");
 
-    return items.filter(x =>
-      String(x.codigo || x.id)
+    return items.filter(x => {
+      const codigo = String(x.id)
         .toUpperCase()
-        .replace(/[^A-Z0-9]/g, "")
-        .includes(term)
-    );
-  }, [items, search]);
+        .replace(/[^A-Z0-9]/g, "");
+
+      if (term && !codigo.includes(term)) return false;
+      return fazParteDoFiltro(x, filtroStatus);
+    });
+  }, [items, search, filtroStatus]);
+
+  const numerosOriginais = useMemo(
+    () => new Map(items.map((item, itemIndex) => [item.id, itemIndex + 1])),
+    [items]
+  );
+  const totalOriginal = items.length;
 
   useEffect(() => {
-    setIndex(current => {
-      if (!filtered.length) return 0;
+    const pendente = codigoPendente.current;
 
-      return Math.min(
-        Math.max(current, 0),
-        filtered.length - 1
-      );
+    if (pendente) {
+      const destino = filtered.findIndex(item => item.id === pendente);
+
+      if (destino >= 0) {
+        codigoPendente.current = null;
+        setIndex(destino);
+        return;
+      }
+    }
+
+    setIndex(currentIndex => {
+      if (!filtered.length) return 0;
+      return Math.min(Math.max(currentIndex, 0), filtered.length - 1);
     });
-  }, [filtered.length]);
+  }, [filtered]);
 
   const current = filtered[index] || null;
 
@@ -1343,10 +1393,24 @@ function ListaTipo({
   ) {
     if (!current) return;
 
-    await mark(current.id, field);
+    const proximo = filtered[index + 1];
+    const anterior = filtered[index - 1];
 
-    // MANTÉM A VISUALIZAÇÃO ABERTA
-    setVisual(true);
+    if (proximo) {
+      codigoPendente.current = proximo.id;
+    } else if (filtroStatus === "branco" && anterior) {
+      codigoPendente.current = anterior.id;
+    } else {
+      codigoPendente.current = null;
+    }
+
+    try {
+      await mark(current.id, field);
+      setVisual(true);
+    } catch {
+      codigoPendente.current = null;
+      alert("Não foi possível atualizar o status do pacote.");
+    }
   }
 
   async function transfer() {
@@ -1408,6 +1472,21 @@ function ListaTipo({
               />
             </div>
 
+            <select
+              aria-label="Filtro por cor"
+              value={filtroStatus}
+              onChange={e => {
+                setFiltroStatus(e.target.value as FiltroStatus);
+                codigoPendente.current = null;
+                setIndex(0);
+              }}
+            >
+              <option value="todos">TODOS</option>
+              <option value="branco">BRANCO</option>
+              <option value="azul">AZUL</option>
+              <option value="vermelho">VERMELHO</option>
+            </select>
+
             <button
               className="secondary"
               onClick={() => {
@@ -1436,7 +1515,7 @@ function ListaTipo({
           {current ? (
             <>
               <span className="counter">
-                {index + 1} / {filtered.length}
+                {numerosOriginais.get(current.id) ?? "-"} / {totalOriginal}
               </span>
 
               <div
@@ -1562,6 +1641,8 @@ function ListaTipo({
               </div>
 
               <div className="code-copy">
+                <small>Nº {numerosOriginais.get(c.id) ?? "-"}</small>
+
                 <b>
                   {mostrar(c.codigo || c.id)}
                 </b>

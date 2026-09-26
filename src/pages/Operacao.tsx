@@ -7,6 +7,8 @@ import {
   getDocs,
   onSnapshot,
   query,
+  serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -967,6 +969,51 @@ function SlaOperacao({
       ),
       mlApos23: cards.reduce((sum, score) => sum + score.mlApos23, 0),
     };
+  }, [cards]);
+
+  // Salva o resultado diário do SLA (já calculado acima) na coleção sla_operacao.
+  useEffect(() => {
+    if (!cards.length) return;
+    const gravacoes: Promise<void>[] = [];
+    cards.forEach((score) => {
+      score.dias.forEach((dia) => {
+        const data = chaveDiaSlaOperacao(dia.data);
+        const finalizados = dia.entregues + dia.ausentes;
+        gravacoes.push(
+          setDoc(
+            doc(db, "sla_operacao", `${score.id}_${data}`),
+            {
+              usuarioId: score.id,
+              usuarioNome: score.nome,
+              data,
+              pacotes: dia.pacotes,
+              rota: dia.rota,
+              entregues: dia.entregues,
+              ausentes: dia.ausentes,
+              retornos: dia.retornos,
+              retornaramParaRota: dia.retornaramParaRota,
+              retornosPosteriormenteEntregues: dia.retornosPosteriormenteEntregues,
+              primeira: dia.primeira,
+              ultima: dia.ultima,
+              mlAte21: dia.mlAte21,
+              mlEntre21e23: dia.mlEntre21e23,
+              mlApos23: dia.mlApos23,
+              sla: finalizados ? (dia.entregues / finalizados) * 100 : 0,
+              produtividade: valorProdutividadeSlaOperacao(
+                dia.primeira,
+                dia.ultima,
+                finalizados
+              ),
+              atualizadoEm: serverTimestamp(),
+            },
+            { merge: true }
+          )
+        );
+      });
+    });
+    Promise.all(gravacoes).catch((erro) =>
+      console.error("Erro ao salvar sla_operacao:", erro)
+    );
   }, [cards]);
 
   const selecionado = selecionadoId

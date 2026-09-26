@@ -1,4 +1,5 @@
 // ARQUIVO: src/pages/Mapa.tsx
+// A tela conserva a origem e os filtros dos pacotes do Mapa original.
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -7,6 +8,7 @@ import {
   Popup,
   TileLayer,
   Polygon,
+  Polyline,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -26,7 +28,10 @@ import {
   X,
   Save,
   Palette,
+  Eye,
+  EyeOff,
   Map as MapIcon,
+  Maximize2,
 } from "lucide-react";
 
 import PageHeader from "../components/ui/PageHeader";
@@ -69,6 +74,22 @@ type Ponto = Pacote & {
   usuarioMapa: string;
 };
 
+type PontoRegiao = [number, number];
+
+type RegiaoMapa = {
+  id: string;
+  nome: string;
+  cor: string;
+  corBase?: string;
+  /** Transparência da área: 0 (transparente) a 100 (sólida). */
+  tom?: number;
+  pontos: PontoRegiao[];
+  ativa?: boolean;
+  criadoPor?: string;
+  criadoEm?: any;
+  atualizadoEm?: any;
+};
+
 const CORES_USUARIO = [
   "#1769e0",
   "#7c3aed",
@@ -82,14 +103,60 @@ const CORES_USUARIO = [
   "#4f46e5",
 ];
 
-// ======================================================
+// ===========================================================================
+// PALETA DAS REGIÕES — altere livremente as cores abaixo.
+// A cor escolhida é usada no polígono, na legenda e no indicador central.
+// ===========================================================================
+const CORES_REGIAO = [
+  "#1D4ED8",
+  "#6D28D9",
+  "#0E7490",
+  "#15803D",
+  "#C2410C",
+  "#BE185D",
+  "#115E59",
+  "#A16207",
+];
+
+// Transparência da área da região: o campo `tom` vai de 0 (totalmente
+// transparente) a 100 (cor sólida). É salvo no Firestore junto da região.
+// Regiões antigas salvas com tom negativo (escurecer/clarear) voltam ao padrão.
+const TOM_PADRAO = 50;
+
+function normalizarTom(tom: unknown) {
+  const n = Number(tom);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : TOM_PADRAO;
+}
+
+function escaparHtml(texto: string) {
+  return String(texto || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const VERTEX_ICON = L.divIcon({
+  className: "mapa-vertex-icon",
+  html: '<span class="mapa-vertex-dot"></span>',
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
+
+const MIDPOINT_ICON = L.divIcon({
+  className: "mapa-midpoint-icon",
+  html: '<span class="mapa-midpoint-plus">+</span>',
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+});
+
 function usePermission() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async user => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setAllowed(false);
         setIsAdmin(false);
@@ -98,10 +165,8 @@ function usePermission() {
       }
 
       try {
-        // PRIMEIRA TENTATIVA: DOCUMENTO COM UID
         let userDoc = await getDoc(doc(db, "usuarios", user.uid));
 
-        // SEGUNDA TENTATIVA: DOCUMENTO COM EMAIL
         if (!userDoc.exists() && user.email) {
           userDoc = await getDoc(
             doc(db, "usuarios", user.email.toLowerCase())
@@ -116,13 +181,9 @@ function usePermission() {
         }
 
         const userData = userDoc.data();
-
         const admin = String(userData?.tipo || "").toLowerCase() === "admin";
         setIsAdmin(admin);
-        // Acesso ao mapa continua com a mesma regra existente.
-        setAllowed(
-          admin || userData?.permissoes?.finalizados === true
-        );
+        setAllowed(admin || userData?.permissoes?.finalizados === true);
       } catch (error) {
         console.error("Erro ao verificar permissão:", error);
         setAllowed(false);
@@ -138,49 +199,28 @@ function usePermission() {
   return { checkingAccess, allowed, isAdmin };
 }
 
-// DATA LOCAL
-// ======================================================
-
 function dataLocal(d: Date) {
   const ano = d.getFullYear();
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const dia = String(d.getDate()).padStart(2, "0");
-
   return `${ano}-${mes}-${dia}`;
 }
-
-// ======================================================
-// DIA ANTERIOR
-// ======================================================
 
 function getDiaAnterior() {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() - 1);
-
   return dataLocal(d);
 }
 
-// ======================================================
-// COORDENADAS
-// IGNORA:
-// 0 / 0
-// 000000 / 000000
-// NULL
-// UNDEFINED
-// VALORES INVÁLIDOS
-// ======================================================
-
 function coordenadas(p: Pacote) {
   const dados = p as any;
-
   const latitudeOriginal =
     dados.latitudeEntrega ??
     dados.latitude ??
     dados.latEntrega ??
     dados.lat ??
     null;
-
   const longitudeOriginal =
     dados.longitudeEntrega ??
     dados.longitude ??
@@ -202,20 +242,9 @@ function coordenadas(p: Pacote) {
 
   if (
     !Number.isFinite(lat) ||
-    !Number.isFinite(lng)
-  ) {
-    return null;
-  }
-
-  // IGNORA QUALQUER ZERO
-  if (
+    !Number.isFinite(lng) ||
     Math.abs(lat) < 0.000001 ||
-    Math.abs(lng) < 0.000001
-  ) {
-    return null;
-  }
-
-  if (
+    Math.abs(lng) < 0.000001 ||
     lat < -90 ||
     lat > 90 ||
     lng < -180 ||
@@ -224,19 +253,11 @@ function coordenadas(p: Pacote) {
     return null;
   }
 
-  return {
-    lat,
-    lng,
-  };
+  return { lat, lng };
 }
-
-// ======================================================
-// USUÁRIO
-// ======================================================
 
 function usuarioEmailMapa(p: Pacote) {
   const dados = p as any;
-
   return String(
     dados.usuarioFinalizacao ||
       dados.usuarioEmail ||
@@ -246,27 +267,10 @@ function usuarioEmailMapa(p: Pacote) {
   ).trim();
 }
 
-// ======================================================
-// COR USUÁRIO
-// ======================================================
-
-function corUsuario(
-  usuario: string,
-  usuarios: string[]
-) {
-  const index = Math.max(
-    0,
-    usuarios.indexOf(usuario)
-  );
-
-  return CORES_USUARIO[
-    index % CORES_USUARIO.length
-  ];
+function corUsuario(usuario: string, usuarios: string[]) {
+  const index = Math.max(0, usuarios.indexOf(usuario));
+  return CORES_USUARIO[index % CORES_USUARIO.length];
 }
-
-// ======================================================
-// NORMALIZAR TIPO
-// ======================================================
 
 function normalizarTipo(tipo: unknown) {
   return String(tipo || "")
@@ -275,128 +279,238 @@ function normalizarTipo(tipo: unknown) {
     .replace(/[\s-]+/g, "_");
 }
 
-// ======================================================
-// ÍCONE
-// ======================================================
+function grupoTipoPacote(pacote: any): "MERCADO_LIVRE" | "SHOPEE" | "AVULSO" {
+  const tipo = normalizarTipo(pacote?.tipo);
+  if (tipo === "MERCADO_LIVRE" || tipo === "ML" || tipo.includes("MERCADO")) {
+    return "MERCADO_LIVRE";
+  }
+  if (tipo === "SHOPEE" || tipo === "SH" || tipo.includes("SHOPEE")) {
+    return "SHOPEE";
+  }
+  return "AVULSO";
+}
 
 function criarIcone(ponto: Ponto) {
-  const tipo = normalizarTipo(ponto.tipo);
-
+  const grupo = grupoTipoPacote(ponto);
   let src = pinAvulso;
-
-  if (
-    tipo === "MERCADO_LIVRE" ||
-    tipo === "ML" ||
-    tipo.includes("MERCADO")
-  ) {
-    src = pinML;
-  } else if (
-    tipo === "SHOPEE" ||
-    tipo === "SH" ||
-    tipo.includes("SHOPEE")
-  ) {
-    src = pinShopee;
-  }
+  if (grupo === "MERCADO_LIVRE") src = pinML;
+  else if (grupo === "SHOPEE") src = pinShopee;
 
   return L.icon({
     iconUrl: src,
-    iconSize: [42, 42],
-    iconAnchor: [21, 42],
-    popupAnchor: [0, -38],
+    iconSize: [30, 30],
+    iconAnchor: [15, 28],
+    popupAnchor: [0, -27],
     className: "aguia-custom-pin",
   });
 }
 
-// ======================================================
-// FOCA AUTOMATICAMENTE NAS ENTREGAS
-// ======================================================
+function pararPropagacaoMapa(event: any) {
+  if (event?.originalEvent) {
+    L.DomEvent.stopPropagation(event.originalEvent);
+    (event.originalEvent as any)._stopped = true;
+  }
+  ultimoCliqueCamadaMs = Date.now();
+}
+
+let ultimoCliqueCamadaMs = 0;
+
+// Centro visual (centroide de área) do polígono da região.
+function calcularCentroRegiao(pontos: PontoRegiao[]): PontoRegiao | null {
+  if (!pontos.length) return null;
+  if (pontos.length < 3) {
+    const somaLat = pontos.reduce((soma, [lat]) => soma + lat, 0);
+    const somaLng = pontos.reduce((soma, [, lng]) => soma + lng, 0);
+    return [somaLat / pontos.length, somaLng / pontos.length];
+  }
+
+  let area = 0;
+  let cx = 0;
+  let cy = 0;
+
+  for (let i = 0, j = pontos.length - 1; i < pontos.length; j = i++) {
+    const [latI, lngI] = pontos[i];
+    const [latJ, lngJ] = pontos[j];
+    const cruz = lngJ * latI - lngI * latJ;
+    area += cruz;
+    cx += (lngJ + lngI) * cruz;
+    cy += (latJ + latI) * cruz;
+  }
+
+  area *= 0.5;
+
+  if (Math.abs(area) < 1e-12) {
+    const somaLat = pontos.reduce((soma, [lat]) => soma + lat, 0);
+    const somaLng = pontos.reduce((soma, [, lng]) => soma + lng, 0);
+    return [somaLat / pontos.length, somaLng / pontos.length];
+  }
+
+  const centro: PontoRegiao = [cy / (6 * area), cx / (6 * area)];
+
+  if (pontoDentroRegiao(centro[0], centro[1], pontos)) return centro;
+
+  const lats = pontos.map(([lat]) => lat);
+  const lngs = pontos.map(([, lng]) => lng);
+  const alternativo: PontoRegiao = [
+    (Math.min(...lats) + Math.max(...lats)) / 2,
+    (Math.min(...lngs) + Math.max(...lngs)) / 2,
+  ];
+  return pontoDentroRegiao(alternativo[0], alternativo[1], pontos)
+    ? alternativo
+    : centro;
+}
 
 function AjustarMapa({
   points,
+  regions,
 }: {
   points: Ponto[];
+  regions: RegiaoMapa[];
 }) {
   const map = useMap();
-
   const assinatura = useMemo(
     () =>
-      points
-        .map(
-          p =>
-            `${p.id}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}`
-        )
-        .join("|"),
-    [points]
+      regions.length
+        ? regions
+            .map((r) =>
+              `${r.id}:${r.pontos
+                .map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`)
+                .join(";")}`
+            )
+            .join("|")
+        : points
+            .map((p) => `${p.id}:${p.lat.toFixed(6)}:${p.lng.toFixed(6)}`)
+            .join("|"),
+    [points, regions]
   );
 
   useEffect(() => {
-    if (!points.length) {
-      return;
-    }
-
-    if (points.length === 1) {
-      map.flyTo(
-        [
-          points[0].lat,
-          points[0].lng,
-        ],
-        16,
-        {
-          duration: 0.7,
-        }
-      );
-
-      return;
-    }
-
-    const bounds = L.latLngBounds(
-      points.map(
-        p =>
-          [p.lat, p.lng] as [
-            number,
-            number
-          ]
-      )
-    );
-
-    map.flyToBounds(
-      bounds.pad(0.12),
-      {
-        maxZoom: 17,
-        padding: [40, 40],
-        duration: 0.7,
+    // Prioridade 1: enquadrar TODAS as regiões cadastradas.
+    const vertices = regions.flatMap((region) => region.pontos);
+    if (vertices.length) {
+      if (vertices.length === 1) {
+        map.flyTo(vertices[0], 13, { duration: 0.65 });
+        return;
       }
+      map.flyToBounds(
+        L.latLngBounds(vertices.map(([lat, lng]) => [lat, lng])).pad(0.08),
+        { maxZoom: 14, padding: [70, 70], duration: 0.65 }
+      );
+      return;
+    }
+
+    // Prioridade 2 (sem regiões): comportamento original com os pacotes.
+    if (!points.length) return;
+    if (points.length === 1) {
+      map.flyTo([points[0].lat, points[0].lng], 15, { duration: 0.65 });
+      return;
+    }
+    const bounds = L.latLngBounds(
+      points.map((p) => [p.lat, p.lng] as [number, number])
     );
-  }, [map, assinatura]);
+    map.flyToBounds(bounds.pad(0.12), {
+      maxZoom: 16,
+      padding: [42, 42],
+      duration: 0.65,
+    });
+  }, [map, assinatura, points, regions]);
 
   return null;
 }
 
+function MapaClique({
+  ativo,
+  onClique,
+  onCliqueFora,
+}: {
+  ativo: boolean;
+  onClique: (ponto: PontoRegiao) => void;
+  onCliqueFora?: () => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (ativo) {
+        onClique([event.latlng.lat, event.latlng.lng]);
+        return;
+      }
+      if ((event.originalEvent as any)?._stopped) return;
+      if (Date.now() - ultimoCliqueCamadaMs < 300) return;
+      onCliqueFora?.();
+    },
+  });
+  return null;
+}
 
-// ======================================================
-// REGIÕES DO MAPA
-// ======================================================
+function ControleFocoMapa() {
+  const map = useMap();
 
-type PontoRegiao = [number, number];
+  useEffect(() => {
+    const focar = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        bounds?: L.LatLngBounds;
+        center?: [number, number];
+        zoom?: number;
+      }>).detail;
+      if (detail?.bounds?.isValid()) {
+        map.flyToBounds(detail.bounds.pad(0.12), {
+          maxZoom: 16,
+          padding: [42, 42],
+          duration: 0.65,
+        });
+      } else if (detail?.center) {
+        map.flyTo(detail.center, detail.zoom || 15, { duration: 0.65 });
+      }
+    };
 
-type RegiaoMapa = {
-  id: string;
-  nome: string;
-  cor: string;
-  entregadores: string[];
-  pontos: PontoRegiao[];
-  criadoPor?: string;
-  criadoEm?: any;
-  atualizadoEm?: any;
-};
+    window.addEventListener("mapa:focar", focar);
+    return () => window.removeEventListener("mapa:focar", focar);
+  }, [map]);
 
-type MovimentoSlaRegiao = {
+  return null;
+}
+
+function usuarioIdOperacao(p: any) {
+  return String(
+    p.usuarioFinalizacao ||
+      p.usuario ||
+      p.usuarioEntrega ||
+      p.entregador ||
+      p.emailUsuario ||
+      p.userEmail ||
+      p.usuarioEmail ||
+      p.uidUsuario ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function usuarioIdRegiao(p: any) {
+  return String(
+    p?.usuarioFinalizacao ||
+      p?.usuario ||
+      p?.usuarioEntrega ||
+      p?.entregador ||
+      p?.emailUsuario ||
+      p?.userEmail ||
+      p?.usuarioEmail ||
+      p?.uidUsuario ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+}
+
+// As funções e regras abaixo reproduzem o cálculo usado por SlaOperacao
+// em Operacao.tsx. A única diferença é que a lista recebida já está
+// limitada aos pacotes geograficamente dentro da região selecionada.
+type MovimentoSlaOperacao = {
   data: number;
   status: "COLETADO" | "ROTA" | "ENTREGUE" | "AUSENTE";
   usuario: string;
 };
 
-type DiaSlaRegiao = {
+type DiaSlaOperacao = {
   data: number;
   pacotes: number;
   rota: number;
@@ -412,41 +526,48 @@ type DiaSlaRegiao = {
   mlApos23: number;
 };
 
-type SlaRegiao = {
+type SlaOperacao = {
   id: string;
   nome: string;
-  dias: Record<string, DiaSlaRegiao>;
+  dias: Record<string, DiaSlaOperacao>;
 };
 
-function usuarioIdRegiao(p: any) {
-  return String(
-    p?.usuarioFinalizacao ||
-      p?.usuario ||
-      p?.usuarioEntrega ||
-      p?.entregador ||
-      p?.emailUsuario ||
-      p?.userEmail ||
-      p?.usuarioEmail ||
-      p?.uidUsuario ||
-      ""
-  ).trim().toLowerCase();
-}
+type ResumoSla = {
+  total: number;
+  rota: number;
+  entregues: number;
+  ausentes: number;
+  retornos: number;
+  retornaramParaRota: number;
+  retornosPosteriormenteEntregues: number;
+  primeira: number | null;
+  ultima: number | null;
+  mlAte21: number;
+  mlEntre21e23: number;
+  mlApos23: number;
+  sla: number;
+  mediaPorDia: number;
+  produtividade: string;
+};
 
-function dataHistoricoRegiao(valor: any) {
+function dataHistoricoOperacao(valor: any) {
   if (valor?.toDate instanceof Function) {
     const data = valor.toDate();
     return data instanceof Date ? data.getTime() : null;
   }
+
   const timestamp = timestampMs(valor);
   if (Number.isFinite(timestamp)) return timestamp;
+
   if (typeof valor === "string") {
     const parsed = Date.parse(valor);
     return Number.isFinite(parsed) ? parsed : null;
   }
+
   return null;
 }
 
-function movimentosSlaRegiao(pacote: any): MovimentoSlaRegiao[] {
+function movimentosSlaOperacao(pacote: any): MovimentoSlaOperacao[] {
   const fonte = pacote?.historico;
   const itens = Array.isArray(fonte)
     ? fonte
@@ -455,18 +576,31 @@ function movimentosSlaRegiao(pacote: any): MovimentoSlaRegiao[] {
       : [];
 
   return itens
-    .filter((item): item is Record<string, any> =>
-      Boolean(item) && typeof item === "object" && !Array.isArray(item)
-    )
-    .map((item) => ({
-      data: dataHistoricoRegiao(item.dataHora),
-      status: String(item.status || "").trim().toUpperCase(),
-      usuario: String(
-        item.usuario || item.entregador || item.motorista || item.responsavel || ""
-      ).trim().toLowerCase(),
-    }))
     .filter(
-      (item): item is MovimentoSlaRegiao =>
+      (item): item is Record<string, any> =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        !Array.isArray(item)
+    )
+    .map((item) => {
+      const data = dataHistoricoOperacao(item.dataHora);
+      const status = String(item.status || "")
+        .trim()
+        .toUpperCase();
+      const usuario = String(
+        item.usuario ||
+          item.entregador ||
+          item.motorista ||
+          item.responsavel ||
+          ""
+      )
+        .trim()
+        .toLowerCase();
+
+      return { data, status, usuario };
+    })
+    .filter(
+      (item): item is MovimentoSlaOperacao =>
         item.data !== null &&
         (item.status === "COLETADO" ||
           item.status === "ROTA" ||
@@ -476,60 +610,107 @@ function movimentosSlaRegiao(pacote: any): MovimentoSlaRegiao[] {
     .sort((a, b) => a.data - b.data);
 }
 
-function chaveDiaSlaRegiao(data: number) {
+function chaveDiaSlaOperacao(data: number) {
   const d = new Date(data);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function inicioDiaSlaRegiao(valor: string) {
+function inicioDiaSlaOperacao(valor: string) {
   const [ano, mes, dia] = valor.split("-").map(Number);
   return new Date(ano, mes - 1, dia).getTime();
 }
 
-function isBaixaAutomaticaSlaRegiao(movimento: MovimentoSlaRegiao) {
+function isBaixaAutomaticaSlaOperacao(
+  movimento: MovimentoSlaOperacao
+) {
   const d = new Date(movimento.data);
   const minutos = d.getHours() * 60 + d.getMinutes();
   return (
-    (movimento.status === "ENTREGUE" || movimento.status === "AUSENTE") &&
+    (movimento.status === "ENTREGUE" ||
+      movimento.status === "AUSENTE") &&
     minutos >= 23 * 60 + 40
   );
 }
 
-function isMercadoLivreSlaRegiao(pacote: any) {
-  const texto = [pacote?.empresa, pacote?.tipo, pacote?.transportadora, pacote?.origem]
+function isMercadoLivreSlaOperacao(pacote: any) {
+  // Os pacotes do Mapa gravam o tipo como "MERCADO_LIVRE" / "ML", por isso
+  // underscores e hifens viram espaco antes da comparacao. Sem isso a
+  // deteccao falhava e os horarios do Mercado Livre ficavam zerados.
+  const texto = [
+    pacote?.empresa,
+    pacote?.tipo,
+    pacote?.transportadora,
+    pacote?.origem,
+  ]
     .filter(Boolean)
     .join(" ")
     .toUpperCase()
-    .replace(/\s+/g, " ");
-  return (
+    .replace(/[\s_\-.]+/g, " ")
+    .trim();
+
+  if (
     texto.includes("MERCADO LIVRE") ||
     texto.includes("MERCADOLIVRE") ||
     texto.includes("MELI")
-  );
+  ) {
+    return true;
+  }
+
+  // "ML" isolado (token), nunca dentro de outra palavra.
+  if (texto.split(" ").includes("ML")) return true;
+
+  // Mesma classificacao usada pelos pins do mapa.
+  return grupoTipoPacote(pacote) === "MERCADO_LIVRE";
 }
 
-function calcularSlaRegiao(items: any[], nomes: Record<string, string>) {
-  const mapa = new Map<string, SlaRegiao>();
+function valorProdutividadeSlaOperacao(
+  primeira: number | null,
+  ultima: number | null,
+  finalizados: number
+) {
+  if (primeira === null || ultima === null || finalizados === 0) {
+    return "-";
+  }
+
+  const horas = (ultima - primeira) / 3600000;
+  return horas <= 0
+    ? "-"
+    : `${Math.round(finalizados / horas)}/h`;
+}
+
+function construirSlaOperacao(
+  items: Pacote[],
+  nomes: UserNameMap
+): SlaOperacao[] {
+  const mapa = new Map<string, SlaOperacao>();
   const obter = (id: string) => {
     if (!mapa.has(id)) {
-      mapa.set(id, { id, nome: nomes[id] || id || "Sem usuário", dias: {} });
+      mapa.set(id, {
+        id,
+        nome: (nomes as Record<string, string>)[id] || id || "Sem usuário",
+        dias: {},
+      });
     }
     return mapa.get(id)!;
   };
 
   items.forEach((pacote) => {
-    const movimentos = movimentosSlaRegiao(pacote);
+    const movimentos = movimentosSlaOperacao(pacote);
     if (!movimentos.length) return;
 
-    const idPacote = usuarioIdRegiao(pacote);
-    const id = idPacote || movimentos.find((m) => m.usuario)?.usuario || "";
+    const idPacote = usuarioIdOperacao(pacote);
+    const id =
+      idPacote ||
+      movimentos.find((movimento) => movimento.usuario)?.usuario ||
+      "";
     if (!id) return;
 
-    const porDia = new Map<string, MovimentoSlaRegiao[]>();
+    const porDia = new Map<string, MovimentoSlaOperacao[]>();
     movimentos.forEach((movimento) => {
-      const chave = chaveDiaSlaRegiao(movimento.data);
+      const chave = chaveDiaSlaOperacao(movimento.data);
       const lista = porDia.get(chave) || [];
       lista.push(movimento);
       porDia.set(chave, lista);
@@ -537,16 +718,22 @@ function calcularSlaRegiao(items: any[], nomes: Record<string, string>) {
 
     const score = obter(id);
     porDia.forEach((movimentosDoDia, chave) => {
-      const rotas = movimentosDoDia.filter((m) => m.status === "ROTA");
-      const baixas = movimentosDoDia.filter(
-        (m) => m.status === "ENTREGUE" || m.status === "AUSENTE"
+      const rotas = movimentosDoDia.filter(
+        (movimento) => movimento.status === "ROTA"
       );
+      const baixas = movimentosDoDia.filter(
+        (movimento) =>
+          movimento.status === "ENTREGUE" ||
+          movimento.status === "AUSENTE"
+      );
+
+      // COLETADO sozinho não cria um registro de SLA.
       if (!rotas.length && !baixas.length) return;
 
       const dia =
         score.dias[chave] ||
         (score.dias[chave] = {
-          data: inicioDiaSlaRegiao(chave),
+          data: inicioDiaSlaOperacao(chave),
           pacotes: 0,
           rota: 0,
           entregues: 0,
@@ -563,22 +750,37 @@ function calcularSlaRegiao(items: any[], nomes: Record<string, string>) {
 
       dia.pacotes++;
 
-      const dataAnterior = new Date(inicioDiaSlaRegiao(chave));
+      const dataAnterior = new Date(inicioDiaSlaOperacao(chave));
       dataAnterior.setDate(dataAnterior.getDate() - 1);
-      const chaveAnterior = chaveDiaSlaRegiao(dataAnterior.getTime());
-      const ausenteNoDiaAnterior = movimentos.some(
-        (m) => chaveDiaSlaRegiao(m.data) === chaveAnterior && m.status === "AUSENTE"
+      const chaveDiaAnterior = chaveDiaSlaOperacao(
+        dataAnterior.getTime()
       );
-      const teveEntregueHoje = movimentosDoDia.some((m) => m.status === "ENTREGUE");
+      const ausenteNoDiaAnterior = movimentos.some(
+        (movimento) =>
+          chaveDiaSlaOperacao(movimento.data) === chaveDiaAnterior &&
+          movimento.status === "AUSENTE"
+      );
+      const teveEntregueHoje = movimentosDoDia.some(
+        (movimento) => movimento.status === "ENTREGUE"
+      );
 
-      if (ausenteNoDiaAnterior && (rotas.length > 0 || teveEntregueHoje)) {
+      if (
+        ausenteNoDiaAnterior &&
+        (rotas.length > 0 || teveEntregueHoje)
+      ) {
         dia.retornos++;
       }
 
       if (rotas.length) {
         dia.rota++;
-        dia.primeira = dia.primeira === null ? rotas[0].data : Math.min(dia.primeira, rotas[0].data);
-        if (ausenteNoDiaAnterior) dia.retornaramParaRota++;
+        dia.primeira =
+          dia.primeira === null
+            ? rotas[0].data
+            : Math.min(dia.primeira, rotas[0].data);
+
+        if (ausenteNoDiaAnterior) {
+          dia.retornaramParaRota++;
+        }
       }
 
       if (ausenteNoDiaAnterior && teveEntregueHoje) {
@@ -586,17 +788,30 @@ function calcularSlaRegiao(items: any[], nomes: Record<string, string>) {
       }
 
       const ultimaBaixa = baixas[baixas.length - 1];
-      if (ultimaBaixa?.status === "ENTREGUE") dia.entregues++;
-      else if (ultimaBaixa?.status === "AUSENTE") dia.ausentes++;
-
-      const baixasParaUltima = baixas.filter((m) => !isBaixaAutomaticaSlaRegiao(m));
-      if (baixasParaUltima.length) {
-        const ultimaHumana = baixasParaUltima[baixasParaUltima.length - 1].data;
-        dia.ultima = dia.ultima === null ? ultimaHumana : Math.max(dia.ultima, ultimaHumana);
+      if (ultimaBaixa?.status === "ENTREGUE") {
+        dia.entregues++;
+      } else if (ultimaBaixa?.status === "AUSENTE") {
+        dia.ausentes++;
       }
 
-      if (isMercadoLivreSlaRegiao(pacote)) {
-        const entregas = movimentosDoDia.filter((m) => m.status === "ENTREGUE");
+      // Baixas automáticas continuam nos demais cálculos, mas não definem
+      // a última baixa real.
+      const baixasParaUltima = baixas.filter(
+        (movimento) => !isBaixaAutomaticaSlaOperacao(movimento)
+      );
+      if (baixasParaUltima.length) {
+        const ultimaHumana =
+          baixasParaUltima[baixasParaUltima.length - 1].data;
+        dia.ultima =
+          dia.ultima === null
+            ? ultimaHumana
+            : Math.max(dia.ultima, ultimaHumana);
+      }
+
+      if (isMercadoLivreSlaOperacao(pacote)) {
+        const entregas = movimentosDoDia.filter(
+          (movimento) => movimento.status === "ENTREGUE"
+        );
         const ultimaEntrega = entregas[entregas.length - 1];
         if (ultimaEntrega) {
           const d = new Date(ultimaEntrega.data);
@@ -612,41 +827,152 @@ function calcularSlaRegiao(items: any[], nomes: Record<string, string>) {
   return Array.from(mapa.values());
 }
 
-function consolidarSlaRegiao(dados: SlaRegiao[]) {
-  const dias = dados.flatMap((item) => Object.values(item.dias));
-  const total = dias.reduce((s, d) => s + d.pacotes, 0);
-  const rota = dias.reduce((s, d) => s + d.rota, 0);
-  const entregues = dias.reduce((s, d) => s + d.entregues, 0);
-  const ausentes = dias.reduce((s, d) => s + d.ausentes, 0);
-  const retornos = dias.reduce((s, d) => s + d.retornos, 0);
-  const retornaramParaRota = dias.reduce((s, d) => s + d.retornaramParaRota, 0);
-  const retornosPosteriormenteEntregues = dias.reduce((s, d) => s + d.retornosPosteriormenteEntregues, 0);
-  const mlAte21 = dias.reduce((s, d) => s + d.mlAte21, 0);
-  const mlEntre21e23 = dias.reduce((s, d) => s + d.mlEntre21e23, 0);
-  const mlApos23 = dias.reduce((s, d) => s + d.mlApos23, 0);
-  const primeira = dias.filter((d) => d.primeira !== null).reduce<number | null>((v, d) =>
-    v === null ? d.primeira : Math.min(v, d.primeira!), null);
-  const ultima = dias.filter((d) => d.ultima !== null).reduce<number | null>((v, d) =>
-    v === null ? d.ultima : Math.max(v, d.ultima!), null);
-  const sla = entregues + ausentes > 0 ? (entregues / (entregues + ausentes)) * 100 : 0;
-  const mediaPorDia = dias.length ? total / dias.length : 0;
-  const produtividade = primeira !== null && ultima !== null && ultima > primeira
-    ? Math.round((entregues + ausentes) / ((ultima - primeira) / 3600000))
-    : null;
+function intervaloDiasSla(intervalo: { inicio: number; fim: number }) {
+  const inicio =
+    intervalo.inicio <= 0
+      ? Number.NEGATIVE_INFINITY
+      : (() => {
+          const d = new Date(intervalo.inicio);
+          return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        })();
+  const fim =
+    intervalo.fim >= 8e15
+      ? Number.POSITIVE_INFINITY
+      : (() => {
+          const d = new Date(intervalo.fim);
+          return (
+            new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() +
+            86400000 -
+            1
+          );
+        })();
+  return { inicio, fim };
+}
+
+function resumirSlaOperacao(
+  items: Pacote[],
+  nomes: UserNameMap,
+  intervalo: { inicio: number; fim: number }
+): ResumoSla {
+  const { inicio, fim } = intervaloDiasSla(intervalo);
+  const cards = construirSlaOperacao(items, nomes)
+    .map((score) => {
+      const dias = Object.values(score.dias)
+        .filter((dia) => dia.data >= inicio && dia.data <= fim)
+        .sort((a, b) => b.data - a.data);
+      const total = dias.reduce((sum, dia) => sum + dia.pacotes, 0);
+      const rota = dias.reduce((sum, dia) => sum + dia.rota, 0);
+      const entregues = dias.reduce((sum, dia) => sum + dia.entregues, 0);
+      const ausentes = dias.reduce((sum, dia) => sum + dia.ausentes, 0);
+      const retornos = dias.reduce((sum, dia) => sum + dia.retornos, 0);
+      const retornaramParaRota = dias.reduce(
+        (sum, dia) => sum + dia.retornaramParaRota,
+        0
+      );
+      const retornosPosteriormenteEntregues = dias.reduce(
+        (sum, dia) => sum + dia.retornosPosteriormenteEntregues,
+        0
+      );
+      const primeiras = dias
+        .map((dia) => dia.primeira)
+        .filter((valor): valor is number => valor !== null);
+      const ultimas = dias
+        .map((dia) => dia.ultima)
+        .filter((valor): valor is number => valor !== null);
+      const mlAte21 = dias.reduce((sum, dia) => sum + dia.mlAte21, 0);
+      const mlEntre21e23 = dias.reduce(
+        (sum, dia) => sum + dia.mlEntre21e23,
+        0
+      );
+      const mlApos23 = dias.reduce((sum, dia) => sum + dia.mlApos23, 0);
+
+      return {
+        ...score,
+        dias,
+        total,
+        rota,
+        entregues,
+        ausentes,
+        retornos,
+        retornaramParaRota,
+        retornosPosteriormenteEntregues,
+        primeira: primeiras.length ? Math.min(...primeiras) : null,
+        ultima: ultimas.length ? Math.max(...ultimas) : null,
+        mlAte21,
+        mlEntre21e23,
+        mlApos23,
+      };
+    })
+    .filter((score) => score.total > 0);
+
+  const total = cards.reduce((sum, score) => sum + score.total, 0);
+  const rota = cards.reduce((sum, score) => sum + score.rota, 0);
+  const entregues = cards.reduce((sum, score) => sum + score.entregues, 0);
+  const ausentes = cards.reduce((sum, score) => sum + score.ausentes, 0);
+  const finalizados = entregues + ausentes;
+  const retornos = cards.reduce((sum, score) => sum + score.retornos, 0);
+  const retornaramParaRota = cards.reduce(
+    (sum, score) => sum + score.retornaramParaRota,
+    0
+  );
+  const retornosPosteriormenteEntregues = cards.reduce(
+    (sum, score) => sum + score.retornosPosteriormenteEntregues,
+    0
+  );
+  const primeiras = cards
+    .map((score) => score.primeira)
+    .filter((valor): valor is number => valor !== null);
+  const ultimas = cards
+    .map((score) => score.ultima)
+    .filter((valor): valor is number => valor !== null);
+  const mlAte21 = cards.reduce((sum, score) => sum + score.mlAte21, 0);
+  const mlEntre21e23 = cards.reduce(
+    (sum, score) => sum + score.mlEntre21e23,
+    0
+  );
+  const mlApos23 = cards.reduce((sum, score) => sum + score.mlApos23, 0);
+  const primeira = primeiras.length ? Math.min(...primeiras) : null;
+  const ultima = ultimas.length ? Math.max(...ultimas) : null;
+  const numeroDias = new Set(
+    cards.flatMap((score) => score.dias.map((dia) => dia.data))
+  ).size;
+
   return {
-    total, rota, entregues, ausentes, retornos, retornaramParaRota,
-    retornosPosteriormenteEntregues, mlAte21, mlEntre21e23, mlApos23,
-    sla, mediaPorDia, produtividade, dias: dias.length,
+    total,
+    rota,
+    entregues,
+    ausentes,
+    retornos,
+    retornaramParaRota,
+    retornosPosteriormenteEntregues,
+    primeira,
+    ultima,
+    mlAte21,
+    mlEntre21e23,
+    mlApos23,
+    sla: finalizados ? (entregues / finalizados) * 100 : 0,
+    mediaPorDia: numeroDias ? total / numeroDias : 0,
+    produtividade: valorProdutividadeSlaOperacao(
+      primeira,
+      ultima,
+      finalizados
+    ),
   };
 }
 
-function pontoDentroRegiao(lat: number, lng: number, pontos: PontoRegiao[]) {
+function pontoDentroRegiao(
+  lat: number,
+  lng: number,
+  pontos: PontoRegiao[]
+) {
   if (pontos.length < 3) return false;
   let dentro = false;
   for (let i = 0, j = pontos.length - 1; i < pontos.length; j = i++) {
     const [yi, xi] = pontos[i];
     const [yj, xj] = pontos[j];
-    const cruza = xi > lng !== xj > lng && lat < ((yj - yi) * (lng - xi)) / (xj - xi) + yi;
+    const cruza =
+      xi > lng !== xj > lng &&
+      lat < ((yj - yi) * (lng - xi)) / (xj - xi) + yi;
     if (cruza) dentro = !dentro;
   }
   return dentro;
@@ -670,109 +996,320 @@ function pontosMeio(pontos: PontoRegiao[]) {
   });
 }
 
-function MapaClique({
-  ativo,
-  onClique,
-}: {
-  ativo: boolean;
-  onClique: (ponto: PontoRegiao) => void;
-}) {
-  useMapEvents({
-    click(e) {
-      if (ativo) onClique([e.latlng.lat, e.latlng.lng]);
-    },
+function codigoPacoteMapa(pacote: any) {
+  const raw = pacote?.raw;
+  if (raw && typeof raw === "object") {
+    return String(
+      raw.external_grouper_code ||
+        raw.codigo ||
+        raw.id ||
+        pacote.codigo ||
+        pacote.id ||
+        "-"
+    );
+  }
+  if (typeof raw === "string") {
+    try {
+      const json = JSON.parse(raw);
+      return String(
+        json.external_grouper_code ||
+          json.codigo ||
+          json.id ||
+          pacote.codigo ||
+          pacote.id ||
+          "-"
+      );
+    } catch {
+      return String(pacote.codigo || pacote.id || raw);
+    }
+  }
+  return String(pacote?.codigo || pacote?.id || "-");
+}
+
+function obterEndereco(p: Ponto) {
+  const dados = p as any;
+  const campos = [
+    "enderecoBaixa",
+    "enderecoEntrega",
+    "endereco",
+    "localEntrega",
+    "enderecoCompleto",
+    "address",
+    "logradouro",
+    "rua",
+    "local",
+  ];
+  for (const campo of campos) {
+    const valor = dados[campo];
+    if (
+      valor !== null &&
+      valor !== undefined &&
+      String(valor).trim()
+    ) {
+      return String(valor).trim();
+    }
+  }
+  return "Endereço da baixa não disponível";
+}
+
+function dataPacote(p: Pacote) {
+  const dados = p as any;
+  const valor = dados.dataHoraBaixa || dados.data;
+  if (!valor) return "—";
+  try {
+    return formatarData(valor) || "—";
+  } catch {
+    const ms = timestampMs(valor);
+    return Number.isFinite(ms) ? new Date(ms).toLocaleString("pt-BR") : "—";
+  }
+}
+
+function formatarPercentual(valor: number) {
+  return `${valor.toFixed(1).replace(".", ",")}%`;
+}
+
+function formatarNumeroBr(valor: number, decimais = 1) {
+  return valor.toFixed(decimais).replace(".", ",");
+}
+
+const NOMES_DIA_SEMANA = [
+  "Domingo",
+  "Segunda-feira",
+  "Terça-feira",
+  "Quarta-feira",
+  "Quinta-feira",
+  "Sexta-feira",
+  "Sábado",
+];
+
+type VolumeDia = {
+  chave: string;
+  data: number;
+  rotulo: string;
+  dataCurta: string;
+  total: number;
+};
+
+// Volume diário real: um registro por dia com pacotes dentro do polígono.
+function volumeDiarioRegiao(pacotes: Pacote[]): VolumeDia[] {
+  const mapa = new Map<string, number>();
+
+  pacotes.forEach((pacote) => {
+    const dados = pacote as any;
+    const referencia = timestampMs(dados.dataHoraBaixa || dados.data);
+    if (!referencia) return;
+    const chave = chaveDiaSlaOperacao(referencia);
+    mapa.set(chave, (mapa.get(chave) || 0) + 1);
   });
-  return null;
+
+  return Array.from(mapa.entries())
+    .map(([chave, total]) => {
+      const data = inicioDiaSlaOperacao(chave);
+      const d = new Date(data);
+      return {
+        chave,
+        data,
+        total,
+        rotulo: NOMES_DIA_SEMANA[d.getDay()],
+        dataCurta: d.toLocaleDateString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+        }),
+      };
+    })
+    .sort((a, b) => a.data - b.data);
 }
 
-function nomeDataRegiao(valor: any) {
-  const ms = dataHistoricoRegiao(valor);
-  if (!ms) return "-";
-  return new Date(ms).toLocaleDateString("pt-BR");
+function distribuicaoTiposRegiao(pacotes: Pacote[]) {
+  let mercadoLivre = 0;
+  let shopee = 0;
+  let avulso = 0;
+
+  pacotes.forEach((pacote) => {
+    const grupo = grupoTipoPacote(pacote);
+    if (grupo === "MERCADO_LIVRE") mercadoLivre++;
+    else if (grupo === "SHOPEE") shopee++;
+    else avulso++;
+  });
+
+  return {
+    mercadoLivre,
+    shopee,
+    avulso,
+    total: mercadoLivre + shopee + avulso,
+  };
 }
 
-// ======================================================
-// TELA MAPA
-// ======================================================
+function IndicadorRegiao({
+  regiao,
+  sla,
+  pacotes,
+  onSelecionar,
+}: {
+  regiao: RegiaoMapa;
+  sla: number;
+  pacotes: number;
+  onSelecionar: () => void;
+}) {
+  const centro = useMemo(
+    () => calcularCentroRegiao(regiao.pontos),
+    [regiao.pontos]
+  );
+
+  const icone = useMemo(() => {
+    if (!centro) return null;
+    // Cartão compacto e legível: nome da região no topo, SLA e total de
+    // pacotes em duas colunas separadas por divisória.
+    return L.divIcon({
+      className: "mapa-region-badge-icon",
+      html: `
+        <div class="mapa-region-badge" style="--mapa-region-color:${regiao.cor}" title="${escaparHtml(
+          regiao.nome
+        )} · SLA ${formatarPercentual(sla)} · ${pacotes.toLocaleString("pt-BR")} pacotes">
+          <span class="mapa-region-badge-dot"></span>
+          <b class="mapa-region-badge-value">${formatarPercentual(sla)}</b>
+          <span class="mapa-region-badge-count">${pacotes.toLocaleString("pt-BR")}</span>
+        </div>
+      `,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    });
+  }, [centro, regiao.cor, regiao.nome, sla, pacotes]);
+
+  if (!centro || !icone) return null;
+
+  return (
+    <Marker
+      position={centro}
+      icon={icone}
+      eventHandlers={{
+        click: (event) => {
+          pararPropagacaoMapa(event);
+          onSelecionar();
+        },
+      }}
+    />
+  );
+}
 
 export default function Mapa() {
   const { checkingAccess, allowed, isAdmin } = usePermission();
+  const [items, setItems] = useState<Pacote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState("");
 
-  const diaAnterior = getDiaAnterior();
-
-  const [items, setItems] =
-    useState<Pacote[]>([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [erro, setErro] =
-    useState("");
-
-  // FILTROS
-
-  const [usuario, setUsuario] =
-    useState("TODOS");
-
-  const [tipo, setTipo] =
-    useState("TODOS");
-
-  const [status, setStatus] =
-    useState("TODOS");
-
-  // SEMPRE ABRE DIA ANTERIOR
-
-  const [periodo, setPeriodo] =
-    useState("DIA_ANTERIOR");
-
-  const [ini, setIni] =
-    useState(diaAnterior);
-
-  const [fim, setFim] =
-    useState(diaAnterior);
-
-  const [nomes, setNomes] =
-    useState<UserNameMap>({});
+  const [usuario, setUsuario] = useState("TODOS");
+  const [tipo, setTipo] = useState("TODOS");
+  const [status, setStatus] = useState("TODOS");
+  const [periodo, setPeriodo] = useState("DIA_ANTERIOR");
+  const [ini, setIni] = useState(getDiaAnterior());
+  const [fim, setFim] = useState(getDiaAnterior());
+  const [nomes, setNomes] = useState<UserNameMap>({});
 
   const [regioes, setRegioes] = useState<RegiaoMapa[]>([]);
+  // Estado visual ativo/inativo: todas as regiões começam OFF ao abrir a
+  // página e permanecem cadastradas no Firestore. Mantido somente em memória
+  // enquanto a página estiver aberta.
+  const [regioesAtivas, setRegioesAtivas] = useState<string[]>([]);
+  // Filtro geral dos ícones de pacote: quando desligado, NENHUM pin aparece
+  // no mapa (inclusive os que estão fora de qualquer região).
+  const [iconesVisiveis, setIconesVisiveis] = useState(true);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [modoRegiao, setModoRegiao] = useState(false);
   const [desenhando, setDesenhando] = useState(false);
   const [pontosDesenho, setPontosDesenho] = useState<PontoRegiao[]>([]);
-  const [regiaoEditando, setRegiaoEditando] = useState<RegiaoMapa | null>(null);
-  const [regiaoSelecionada, setRegiaoSelecionada] = useState<RegiaoMapa | null>(null);
+  const [regiaoEditando, setRegiaoEditando] =
+    useState<RegiaoMapa | null>(null);
+  const [regiaoSelecionada, setRegiaoSelecionada] =
+    useState<RegiaoMapa | null>(null);
   const [nomeRegiao, setNomeRegiao] = useState("");
-  const [corRegiao, setCorRegiao] = useState("#1769e0");
-  const [entregadoresRegiao, setEntregadoresRegiao] = useState<string[]>([]);
+  const [corRegiao, setCorRegiao] = useState(CORES_REGIAO[0]);
+  // Transparência da área (0 = totalmente transparente .. 100 = cor sólida).
+  // Reutiliza o campo `tom` já existente no Firestore, salvo junto da região.
+  const [tomRegiao, setTomRegiao] = useState(TOM_PADRAO);
+  const corFinalRegiao = corRegiao;
   const [salvandoRegiao, setSalvandoRegiao] = useState(false);
   const [carregandoRegioes, setCarregandoRegioes] = useState(false);
 
-
-  // ====================================================
-  // CARREGAR FIREBASE
-  // ====================================================
-
+  async function carregar() {
+    setLoading(true);
+    setErro("");
+    try {
+      const [pacotes, mapaNomes, brutos] = await Promise.all([
+        listarPacotes(),
+        carregarNomesUsuarios(),
+        // Mesma fonte da tela Operação: o histórico completo (com horários
+        // reais de ENTREGUE) vem direto de controle_codigos.
+        getDocs(collection(db, "controle_codigos")).catch((e) => {
+          console.error(e);
+          return null;
+        }),
+      ]);
+      const historicoPorId = new Map<string, any>();
+      brutos?.docs.forEach((d) => {
+        const dados = d.data() as any;
+        if (dados?.historico) historicoPorId.set(d.id, dados.historico);
+      });
+      setItems(
+        (pacotes as any[]).map((p) =>
+          historicoPorId.has(p.id)
+            ? { ...p, historico: historicoPorId.get(p.id) }
+            : p
+        ) as Pacote[]
+      );
+      setNomes(mapaNomes);
+    } catch (error) {
+      console.error(error);
+      setErro("Não foi possível carregar os dados do mapa.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function carregarRegioes() {
-    if (!isAdmin) return;
+    if (!allowed) return;
     setCarregandoRegioes(true);
     try {
       const snap = await getDocs(collection(db, "regioes_mapa"));
-      const lista: RegiaoMapa[] = snap.docs.map((item) => {
-        const data = item.data() as any;
-        return {
-          id: item.id,
-          nome: String(data.nome || "Região sem nome"),
-          cor: String(data.cor || "#1769e0"),
-          entregadores: Array.isArray(data.entregadores) ? data.entregadores.map(String) : [],
-          pontos: Array.isArray(data.pontos)
-            ? data.pontos.map((p: any) => [Number(p[0]), Number(p[1])] as PontoRegiao)
-            : [],
-          criadoPor: data.criadoPor,
-          criadoEm: data.criadoEm,
-          atualizadoEm: data.atualizadoEm,
-        };
-      }).filter((r) => r.pontos.length >= 3);
+      const lista: RegiaoMapa[] = snap.docs
+        .map((item) => {
+          const data = item.data() as any;
+          const pontos: PontoRegiao[] = Array.isArray(data.pontos)
+            ? data.pontos
+                .map(
+                  (p: any) =>
+                    [Number(p.lat), Number(p.lng)] as PontoRegiao
+                )
+                .filter(
+                  ([lat, lng]) =>
+                    Number.isFinite(lat) && Number.isFinite(lng)
+                )
+            : [];
+
+          return {
+            id: item.id,
+            nome: String(data.nome || "Região sem nome"),
+            cor: String(data.cor || CORES_REGIAO[0]),
+            corBase: String(data.corBase || data.cor || CORES_REGIAO[0]),
+            tom: normalizarTom(data.tom),
+            pontos,
+            ativa: data.ativa === true,
+            criadoPor: data.criadoPor,
+            criadoEm: data.criadoEm,
+            atualizadoEm: data.atualizadoEm,
+          };
+        })
+        .filter(
+          (regiao) =>
+            regiao.pontos.length >= 3 &&
+            regiao.pontos.every(
+              ([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng)
+            )
+        );
       setRegioes(lista);
+      // As áreas ficam sempre visíveis; o olho controla só os ícones dos
+      // pacotes da região. Ao carregar, os ícones de todas as regiões aparecem.
+      setRegioesAtivas(lista.map((regiao) => regiao.id));
     } catch (error) {
       console.error("Erro ao carregar regiões:", error);
       setErro("Não foi possível carregar as regiões do mapa.");
@@ -781,57 +1318,20 @@ export default function Mapa() {
     }
   }
 
-  async function carregar() {
-    setLoading(true);
-    setErro("");
-
-    try {
-      const [
-        pacotes,
-        mapaNomes,
-      ] = await Promise.all([
-        listarPacotes(),
-        carregarNomesUsuarios(),
-      ]);
-
-      setItems(pacotes);
-      setNomes(mapaNomes);
-    } catch (e) {
-      console.error(e);
-
-      setErro(
-        "Não foi possível carregar os dados do mapa."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    if (allowed) {
-      carregar();
-    }
+    if (!allowed) return;
+    void carregar();
+    void carregarRegioes();
   }, [allowed]);
-
-  useEffect(() => {
-    if (isAdmin) carregarRegioes();
-  }, [isAdmin]);
-
-  // ====================================================
-  // CALCULAR PERÍODO
-  // ====================================================
 
   const intervaloFiltro = useMemo(() => {
     const agora = new Date();
-
     const hoje = new Date(
       agora.getFullYear(),
       agora.getMonth(),
       agora.getDate()
     );
-
     const inicioHoje = hoje.getTime();
-
     const inicioOntem = new Date(
       hoje.getFullYear(),
       hoje.getMonth(),
@@ -839,305 +1339,183 @@ export default function Mapa() {
     ).getTime();
 
     if (periodo === "DIA_ANTERIOR") {
-      return {
-        inicio: inicioOntem,
-        fim: inicioHoje - 1,
-      };
+      return { inicio: inicioOntem, fim: inicioHoje - 1 };
     }
-
     if (periodo === "HOJE") {
-      return {
-        inicio: inicioHoje,
-        fim: agora.getTime(),
-      };
+      return { inicio: inicioHoje, fim: agora.getTime() };
     }
-
     if (periodo === "7_DIAS") {
-      const inicio7 = new Date(
-        hoje.getFullYear(),
-        hoje.getMonth(),
-        hoje.getDate() - 6
-      ).getTime();
-
-      return {
-        inicio: inicio7,
-        fim: agora.getTime(),
-      };
-    }
-
-    if (periodo === "30_DIAS") {
-      const inicio30 = new Date(
-        hoje.getFullYear(),
-        hoje.getMonth(),
-        hoje.getDate() - 29
-      ).getTime();
-
-      return {
-        inicio: inicio30,
-        fim: agora.getTime(),
-      };
-    }
-
-    if (periodo === "PERSONALIZADO") {
       return {
         inicio: new Date(
-          `${ini}T00:00:00`
+          hoje.getFullYear(),
+          hoje.getMonth(),
+          hoje.getDate() - 6
         ).getTime(),
-
-        fim: new Date(
-          `${fim}T23:59:59.999`
-        ).getTime(),
+        fim: agora.getTime(),
       };
     }
-
-    return {
-      inicio: 0,
-      fim: Number.MAX_SAFE_INTEGER,
-    };
+    if (periodo === "30_DIAS") {
+      return {
+        inicio: new Date(
+          hoje.getFullYear(),
+          hoje.getMonth(),
+          hoje.getDate() - 29
+        ).getTime(),
+        fim: agora.getTime(),
+      };
+    }
+    if (periodo === "PERSONALIZADO") {
+      return {
+        inicio: new Date(`${ini}T00:00:00`).getTime(),
+        fim: new Date(`${fim}T23:59:59.999`).getTime(),
+      };
+    }
+    return { inicio: 0, fim: Number.MAX_SAFE_INTEGER };
   }, [periodo, ini, fim]);
 
-  // ====================================================
-  // ITENS DENTRO DA DATA FILTRADA
-  // ISSO É USADO TAMBÉM PARA MOSTRAR
-  // SOMENTE USUÁRIOS ATIVOS NO PERÍODO
-  // ====================================================
+  const itemsPeriodo = useMemo(
+    () =>
+      items.filter((p) => {
+        const dados = p as any;
+        const dataRef = timestampMs(dados.dataHoraBaixa || dados.data);
+        if (!dataRef) return false;
+        return (
+          dataRef >= intervaloFiltro.inicio &&
+          dataRef <= intervaloFiltro.fim
+        );
+      }),
+    [items, intervaloFiltro]
+  );
 
-  const itemsPeriodo = useMemo(() => {
-    return items.filter(p => {
-      const dados = p as any;
-
-      const dataRef = timestampMs(
-        dados.dataHoraBaixa ||
-          dados.data
-      );
-
-      if (!dataRef) {
-        return false;
-      }
-
-      return (
-        dataRef >= intervaloFiltro.inicio &&
-        dataRef <= intervaloFiltro.fim
-      );
-    });
-  }, [items, intervaloFiltro]);
-
-  // ====================================================
-  // SOMENTE USUÁRIOS QUE TÊM PACOTES
-  // NA DATA/PERÍODO SELECIONADO
-  // ====================================================
-
-  const usuariosAtivos = useMemo(() => {
-    return Array.from(
-      new Set(
-        itemsPeriodo
-          .map(usuarioEmailMapa)
-          .filter(Boolean)
-      )
-    ).sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [itemsPeriodo]);
-
-  const usuariosDisponiveis = useMemo(() => {
-    const ids = new Set<string>(Object.keys(nomes));
-    items.forEach((p) => {
-      const id = usuarioEmailMapa(p);
-      if (id) ids.add(id);
-    });
-    return Array.from(ids).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  }, [items, nomes]);
-
-  // SE O USUÁRIO SELECIONADO DEIXAR DE TER
-  // ATIVIDADE NO NOVO PERÍODO, VOLTA PARA TODOS
+  const usuariosAtivos = useMemo(
+    () =>
+      Array.from(
+        new Set(itemsPeriodo.map(usuarioEmailMapa).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b)),
+    [itemsPeriodo]
+  );
 
   useEffect(() => {
-    if (
-      usuario !== "TODOS" &&
-      !usuariosAtivos.includes(usuario)
-    ) {
+    if (usuario !== "TODOS" && !usuariosAtivos.includes(usuario)) {
       setUsuario("TODOS");
     }
   }, [usuario, usuariosAtivos]);
 
-  // ====================================================
-  // PONTOS FILTRADOS
-  // ====================================================
-
   const pontos = useMemo<Ponto[]>(() => {
     return itemsPeriodo
-      .map(p => {
+      .map((p) => {
         const c = coordenadas(p);
-
-        if (!c) {
-          return null;
-        }
-
+        if (!c) return null;
         return {
           ...p,
           ...c,
-          usuarioMapa:
-            usuarioEmailMapa(p),
+          usuarioMapa: usuarioEmailMapa(p),
         } as Ponto;
       })
-
-      .filter(
-        (p): p is Ponto =>
-          p !== null
-      )
-
-      .filter(p => {
-        // USUÁRIO
-
-        if (
-          usuario !== "TODOS" &&
-          p.usuarioMapa !== usuario
-        ) {
-          return false;
-        }
-
-        // TIPO
-
-        if (
-          tipo !== "TODOS" &&
-          normalizarTipo(p.tipo) !== tipo
-        ) {
-          return false;
-        }
-
-        // STATUS
-
-        if (
-          status !== "TODOS" &&
-          p.status !== status
-        ) {
-          return false;
-        }
-
+      .filter((p): p is Ponto => p !== null)
+      .filter((p) => {
+        if (usuario !== "TODOS" && p.usuarioMapa !== usuario) return false;
+        if (tipo !== "TODOS" && normalizarTipo(p.tipo) !== tipo) return false;
+        if (status !== "TODOS" && p.status !== status) return false;
         return true;
       });
-  }, [
-    itemsPeriodo,
-    usuario,
-    tipo,
-    status,
-  ]);
-
-  // ====================================================
-  // PACOTES SEM COORDENADAS VÁLIDAS
-  // APENAS DENTRO DO PERÍODO
-  // ====================================================
+  }, [itemsPeriodo, usuario, tipo, status]);
 
   const semCoordenadas =
     itemsPeriodo.length -
-    itemsPeriodo.filter(
-      p => coordenadas(p) !== null
-    ).length;
+    itemsPeriodo.filter((p) => coordenadas(p) !== null).length;
 
-  // ====================================================
-  // ALTERAR PERÍODO
-  // ====================================================
+  // Áreas das regiões: sempre visíveis no mapa.
+  const regioesVisiveis = regioes;
 
-  function alterarPeriodo(
-    valor: string
-  ) {
+  // Ícones de pacotes: ocultos quando estão dentro de uma região com o olho
+  // desligado. A área da região continua visível.
+  const pontosExibidos = useMemo(() => {
+    if (!iconesVisiveis) return [];
+    const ocultas = regioes.filter(
+      (regiao) => !regioesAtivas.includes(regiao.id)
+    );
+    if (!ocultas.length) return pontos;
+    return pontos.filter(
+      (p) =>
+        !ocultas.some((regiao) =>
+          pontoDentroRegiao(p.lat, p.lng, regiao.pontos)
+        )
+    );
+  }, [pontos, regioes, regioesAtivas, iconesVisiveis]);
+
+  const todosUsuariosNomes = useMemo(
+    () => (Object.keys(nomes).length ? nomes : ({} as UserNameMap)),
+    [nomes]
+  );
+
+  // Indicadores exibidos dentro dos polígonos das regiões ativas.
+  const indicadoresRegioes = useMemo(
+    () =>
+      regioesVisiveis.map((regiao) => {
+        const pacotesPeriodo = pacotesDaRegiao(regiao, itemsPeriodo);
+        const pacotesCompletos = pacotesDaRegiao(regiao, items);
+        const resumo = resumirSlaOperacao(
+          pacotesCompletos,
+          todosUsuariosNomes,
+          intervaloFiltro
+        );
+        return {
+          regiao,
+          sla: resumo.sla,
+          pacotes: pacotesPeriodo.length,
+        };
+      }),
+    [regioesVisiveis, itemsPeriodo, items, todosUsuariosNomes, intervaloFiltro]
+  );
+
+  function alternarRegiaoAtiva(id: string) {
+    setIconesVisiveis(true);
+    setRegioesAtivas((atual) =>
+      atual.includes(id)
+        ? atual.filter((item) => item !== id)
+        : [...atual, id]
+    );
+  }
+
+  // Filtro geral: liga ou desliga TODOS os ícones de pacote do mapa,
+  // inclusive os que estão fora das regiões desenhadas.
+  function alternarTodasRegioes() {
+    if (todosIconesLigados) {
+      setIconesVisiveis(false);
+      setRegioesAtivas([]);
+      return;
+    }
+    setIconesVisiveis(true);
+    setRegioesAtivas(regioes.map((regiao) => regiao.id));
+  }
+
+  function alterarPeriodo(valor: string) {
     setPeriodo(valor);
-
     const hoje = new Date();
     hoje.setHours(12, 0, 0, 0);
 
-    if (
-      valor === "DIA_ANTERIOR"
-    ) {
-      hoje.setDate(
-        hoje.getDate() - 1
-      );
-
-      const ontem =
-        dataLocal(hoje);
-
+    if (valor === "DIA_ANTERIOR") {
+      hoje.setDate(hoje.getDate() - 1);
+      const ontem = dataLocal(hoje);
       setIni(ontem);
       setFim(ontem);
-    }
-
-    if (valor === "HOJE") {
-      const dataHoje =
-        dataLocal(new Date());
-
+    } else if (valor === "HOJE") {
+      const dataHoje = dataLocal(new Date());
       setIni(dataHoje);
       setFim(dataHoje);
-    }
-
-    if (
-      valor === "7_DIAS"
-    ) {
-      const inicio =
-        new Date();
-
-      inicio.setDate(
-        inicio.getDate() - 6
-      );
-
+    } else if (valor === "7_DIAS") {
+      const inicio = new Date();
+      inicio.setDate(inicio.getDate() - 6);
       setIni(dataLocal(inicio));
-      setFim(
-        dataLocal(new Date())
-      );
-    }
-
-    if (
-      valor === "30_DIAS"
-    ) {
-      const inicio =
-        new Date();
-
-      inicio.setDate(
-        inicio.getDate() - 29
-      );
-
+      setFim(dataLocal(new Date()));
+    } else if (valor === "30_DIAS") {
+      const inicio = new Date();
+      inicio.setDate(inicio.getDate() - 29);
       setIni(dataLocal(inicio));
-      setFim(
-        dataLocal(new Date())
-      );
+      setFim(dataLocal(new Date()));
     }
   }
-
-  // ====================================================
-  // ENDEREÇO NO POPUP
-  // USA O ENDEREÇO JÁ SALVO NO PACOTE
-  // ====================================================
-
-  function pegarEndereco(
-    p: Ponto
-  ) {
-    const dados = p as any;
-
-    const campos = [
-      "enderecoBaixa",
-      "enderecoEntrega",
-      "endereco",
-      "localEntrega",
-      "enderecoCompleto",
-      "address",
-      "logradouro",
-      "rua",
-      "local",
-    ];
-
-    for (const campo of campos) {
-      const valor = dados[campo];
-
-      if (
-        valor !== null &&
-        valor !== undefined &&
-        String(valor).trim()
-      ) {
-        return String(valor).trim();
-      }
-    }
-
-    return "Endereço da baixa não disponível";
-  }
-
 
   function iniciarNovaRegiao() {
     if (!isAdmin) return;
@@ -1147,8 +1525,9 @@ export default function Mapa() {
     setRegiaoEditando(null);
     setRegiaoSelecionada(null);
     setNomeRegiao("");
-    setCorRegiao("#1769e0");
-    setEntregadoresRegiao([]);
+    setCorRegiao(CORES_REGIAO[regioes.length % CORES_REGIAO.length]);
+    setTomRegiao(0);
+    setErro("");
   }
 
   function cancelarEdicaoRegiao() {
@@ -1157,19 +1536,28 @@ export default function Mapa() {
     setPontosDesenho([]);
     setRegiaoEditando(null);
     setNomeRegiao("");
-    setEntregadoresRegiao([]);
   }
 
   function editarRegiao(regiao: RegiaoMapa) {
     if (!isAdmin) return;
     setModoRegiao(true);
     setDesenhando(false);
-    setRegiaoEditando({ ...regiao, pontos: regiao.pontos.map((p) => [...p] as PontoRegiao) });
+    setRegiaoEditando({
+      ...regiao,
+      pontos: regiao.pontos.map((p) => [...p] as PontoRegiao),
+    });
     setPontosDesenho([]);
     setNomeRegiao(regiao.nome);
-    setCorRegiao(regiao.cor);
-    setEntregadoresRegiao([...regiao.entregadores]);
+    setCorRegiao(regiao.corBase || regiao.cor);
+    setTomRegiao(normalizarTom(regiao.tom));
     setRegiaoSelecionada(regiao);
+    setErro("");
+  }
+
+  function adicionarPonto(ponto: PontoRegiao) {
+    if (!isAdmin || !desenhando) return;
+    setPontosDesenho((atual) => [...atual, ponto]);
+    setErro("");
   }
 
   function finalizarDesenho() {
@@ -1182,7 +1570,9 @@ export default function Mapa() {
   }
 
   function atualizarPontoNovo(index: number, ponto: PontoRegiao) {
-    setPontosDesenho((atual) => atual.map((p, i) => i === index ? ponto : p));
+    setPontosDesenho((atual) =>
+      atual.map((p, i) => (i === index ? ponto : p))
+    );
   }
 
   function removerPontoNovo(index: number) {
@@ -1195,7 +1585,19 @@ export default function Mapa() {
     });
   }
 
-  function inserirVertice(indexApos: number, ponto: PontoRegiao) {
+  function inserirVertice(
+    indexApos: number,
+    ponto: PontoRegiao,
+    novo: boolean
+  ) {
+    if (novo) {
+      setPontosDesenho((atual) => {
+        const pontos = [...atual];
+        pontos.splice(indexApos, 0, ponto);
+        return pontos;
+      });
+      return;
+    }
     setRegiaoEditando((atual) => {
       if (!atual) return atual;
       const pontos = [...atual.pontos];
@@ -1204,67 +1606,152 @@ export default function Mapa() {
     });
   }
 
-  function inserirVerticeNovo(indexApos: number, ponto: PontoRegiao) {
-    setPontosDesenho((atual) => {
-      const pontos = [...atual];
-      pontos.splice(indexApos, 0, ponto);
-      return pontos;
-    });
-  }
-
-  function removerVerticeEditando(index: number) {
+  function removerVerticeEditando(index: number, novo: boolean) {
+    if (novo) {
+      removerPontoNovo(index);
+      return;
+    }
     setRegiaoEditando((atual) => {
       if (!atual || atual.pontos.length <= 3) {
         setErro("A região precisa manter pelo menos 3 pontos.");
         return atual;
       }
-      return { ...atual, pontos: atual.pontos.filter((_, i) => i !== index) };
+      return {
+        ...atual,
+        pontos: atual.pontos.filter((_, i) => i !== index),
+      };
+    });
+  }
+
+  function atualizarVertice(index: number, ponto: PontoRegiao, novo: boolean) {
+    if (novo) {
+      atualizarPontoNovo(index, ponto);
+      return;
+    }
+    setRegiaoEditando((atual) => {
+      if (!atual) return atual;
+      const pontos = atual.pontos.map((p, i) => (i === index ? ponto : p));
+      return { ...atual, pontos };
     });
   }
 
   async function salvarRegiao() {
     if (!isAdmin) return;
-    const pontos = regiaoEditando?.pontos || pontosDesenho;
+
+    const usuarioAutenticado = auth.currentUser;
+    if (!usuarioAutenticado?.uid) {
+      setErro("Sua sessão não está autenticada. Entre novamente para salvar regiões.");
+      return;
+    }
+
+    const pontos = (regiaoEditando?.pontos || pontosDesenho).map(
+      (p) => [Number(p[0]), Number(p[1])] as PontoRegiao
+    );
     if (pontos.length < 3) {
       setErro("A região precisa de pelo menos 3 pontos.");
       return;
     }
-    if (!nomeRegiao.trim()) {
-      setErro("Informe o nome da região.");
-      return;
-    }
+    const pontosFirestore = pontos.map(([lat, lng]) => ({
+      lat: Number(lat),
+      lng: Number(lng),
+    }));
+
+    const nome = nomeRegiao.trim() || `Região ${regioes.length + 1}`;
     setSalvandoRegiao(true);
     setErro("");
+
     try {
-      const payload = {
-        nome: nomeRegiao.trim(),
-        cor: corRegiao,
-        entregadores: entregadoresRegiao,
-        pontos,
-        atualizadoEm: serverTimestamp(),
-      };
       if (regiaoEditando) {
-        await updateDoc(doc(db, "regioes_mapa", regiaoEditando.id), payload);
+        if (!regiaoEditando.id) {
+          throw new Error("A região não possui um ID válido do Firestore.");
+        }
+
+        await updateDoc(doc(db, "regioes_mapa", regiaoEditando.id), {
+          nome,
+          cor: corFinalRegiao,
+          corBase: corRegiao,
+          tom: tomRegiao,
+          pontos: pontosFirestore,
+          atualizadoEm: serverTimestamp(),
+        });
+        setRegioes((atual) =>
+          atual.map((regiao) =>
+            regiao.id === regiaoEditando.id
+              ? {
+                  ...regiao,
+                  nome,
+                  cor: corFinalRegiao,
+                  corBase: corRegiao,
+                  tom: tomRegiao,
+                  pontos,
+                }
+              : regiao
+          )
+        );
       } else {
         const ref = await addDoc(collection(db, "regioes_mapa"), {
-          ...payload,
+          nome,
+          cor: corFinalRegiao,
+          corBase: corRegiao,
+          tom: tomRegiao,
+          pontos: pontosFirestore,
           criadoPor: auth.currentUser?.uid || auth.currentUser?.email || "",
           criadoEm: serverTimestamp(),
+          atualizadoEm: serverTimestamp(),
         });
-        payload.pontos = pontos;
-        setRegiaoEditando({
+        const novaRegiao: RegiaoMapa = {
           id: ref.id,
-          nome: payload.nome,
-          cor: payload.cor,
-          entregadores: payload.entregadores,
-          pontos: payload.pontos,
-        });
+          nome,
+          cor: corFinalRegiao,
+          corBase: corRegiao,
+          tom: tomRegiao,
+          pontos,
+        };
+        setRegioes((atual) => [...atual, novaRegiao]);
+        setRegioesAtivas((atual) => [...atual, ref.id]);
       }
-      await carregarRegioes();
-      cancelarEdicaoRegiao();
+
+      setRegiaoSelecionada(null);
+      setModoRegiao(false);
+      setDesenhando(false);
+      setPontosDesenho([]);
+      setRegiaoEditando(null);
+      setNomeRegiao("");
     } catch (error) {
-      console.error("Erro ao salvar região:", error);
-      setErro("Não foi possível salvar a região.");
+      console.error("Erro completo ao salvar região no Firestore:", error);
+
+      const erroFirestore = error as {
+        code?: unknown;
+        message?: unknown;
+      };
+      const codigo = String(erroFirestore?.code || "erro-desconhecido");
+      const mensagem =
+        typeof erroFirestore?.message === "string"
+          ? erroFirestore.message
+          : String(error);
+      const codigoNormalizado = codigo.toLowerCase();
+
+      if (codigoNormalizado.includes("permission-denied")) {
+        setErro(
+          `O Firebase negou a gravação (permission-denied). Confira as regras da coleção regioes_mapa. Detalhe: ${mensagem}`
+        );
+      } else if (codigoNormalizado.includes("unauthenticated")) {
+        setErro(
+          `O Firebase não reconheceu a autenticação (unauthenticated). Entre novamente. Detalhe: ${mensagem}`
+        );
+      } else if (codigoNormalizado.includes("not-found")) {
+        setErro(
+          `O documento da região não foi encontrado (not-found). Detalhe: ${mensagem}`
+        );
+      } else if (codigoNormalizado.includes("unavailable")) {
+        setErro(
+          `O Firestore está indisponível no momento (unavailable). Tente novamente. Detalhe: ${mensagem}`
+        );
+      } else {
+        setErro(
+          `Falha ao salvar a região no Firestore. Código: ${codigo}. Detalhe: ${mensagem}`
+        );
+      }
     } finally {
       setSalvandoRegiao(false);
     }
@@ -1277,422 +1764,1437 @@ export default function Mapa() {
       await deleteDoc(doc(db, "regioes_mapa", regiao.id));
       if (regiaoSelecionada?.id === regiao.id) setRegiaoSelecionada(null);
       if (regiaoEditando?.id === regiao.id) cancelarEdicaoRegiao();
-      await carregarRegioes();
+      setRegioes((atual) => atual.filter((item) => item.id !== regiao.id));
+      setRegioesAtivas((atual) => atual.filter((item) => item !== regiao.id));
     } catch (error) {
       console.error("Erro ao excluir região:", error);
       setErro("Não foi possível excluir a região.");
     }
   }
 
-  function atualizarVertice(index: number, ponto: PontoRegiao) {
-    setRegiaoEditando((atual) => {
-      if (!atual) return atual;
-      const pontos = atual.pontos.map((p, i) => i === index ? ponto : p);
-      return { ...atual, pontos };
-    });
+  // Volta ao enquadramento com TODAS as regiões cadastradas.
+  function centralizarMapa() {
+    const vertices = regioes.flatMap((regiao) => regiao.pontos);
+    if (!vertices.length) {
+      focarMapa();
+      return;
+    }
+    const bounds = L.latLngBounds(
+      vertices.map(([lat, lng]) => [lat, lng] as [number, number])
+    );
+    window.dispatchEvent(new CustomEvent("mapa:focar", { detail: { bounds } }));
   }
 
-  const todasRegioesVisiveis = regioes;
+  function focarMapa() {
+    const idSelecionada = regiaoSelecionada?.id;
+    const alvoSelecionado = regioes.find(
+      (regiao) => regiao.id === idSelecionada
+    );
+    if (alvoSelecionado) {
+      const bounds = L.latLngBounds(
+        alvoSelecionado.pontos.map(
+          ([lat, lng]) => [lat, lng] as [number, number]
+        )
+      );
+      window.dispatchEvent(
+        new CustomEvent("mapa:focar", { detail: { bounds } })
+      );
+      return;
+    }
 
-  // ====================================================
-  // CARREGANDO PERMISSÃO
-  // MESMO PADRÃO DO DASHBOARD
-  // ====================================================
+    const verticesVisiveis = regioesVisiveis.flatMap(
+      (regiao) => regiao.pontos
+    );
+    if (verticesVisiveis.length) {
+      const bounds = L.latLngBounds(
+        verticesVisiveis.map(([lat, lng]) => [lat, lng] as [number, number])
+      );
+      window.dispatchEvent(
+        new CustomEvent("mapa:focar", { detail: { bounds } })
+      );
+    } else if (pontos.length > 1) {
+      const bounds = L.latLngBounds(
+        pontos.map((p) => [p.lat, p.lng] as [number, number])
+      );
+      window.dispatchEvent(
+        new CustomEvent("mapa:focar", { detail: { bounds } })
+      );
+    } else if (pontos.length === 1) {
+      window.dispatchEvent(
+        new CustomEvent("mapa:focar", {
+          detail: {
+            center: [pontos[0].lat, pontos[0].lng],
+            zoom: 15,
+          },
+        })
+      );
+    } else if (regioes[0]?.pontos.length) {
+      const bounds = L.latLngBounds(
+        regioes[0].pontos.map(
+          ([lat, lng]) => [lat, lng] as [number, number]
+        )
+      );
+      window.dispatchEvent(
+        new CustomEvent("mapa:focar", { detail: { bounds } })
+      );
+    }
+  }
 
   if (checkingAccess) {
     return (
-      <div>
+      <div className="mapa-page">
+        <style>{CSS_MAPA}</style>
         <PageHeader
           title="Mapa operacional"
           subtitle="Verificando permissão de acesso..."
         />
-
-        <section
-          className="card"
-          style={{
-            minHeight: "300px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 600,
-          }}
-        >
-          Verificando acesso...
-        </section>
+        <div className="mapa-state-card">Verificando acesso...</div>
       </div>
     );
   }
 
-  // BLOQUEIO PARA NÃO ADMIN
-  // MESMO PADRÃO DO DASHBOARD
   if (!allowed) {
     return (
-      <div>
+      <div className="mapa-page">
+        <style>{CSS_MAPA}</style>
         <PageHeader
           title="Acesso restrito"
-          subtitle="Área exclusiva para administradores."
+          subtitle="Área exclusiva para usuários autorizados."
         />
-
-        <section
-          className="card"
-          style={{
-            minHeight: "320px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "16px",
-            textAlign: "center",
-            padding: "30px",
-          }}
-        >
-          <div
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "18px",
-              display: "grid",
-              placeItems: "center",
-              background: "#fff0f0",
-              color: "#d92d20",
-            }}
-          >
-            <LockKeyhole size={30} />
-          </div>
-
+        <section className="mapa-state-card mapa-denied">
+          <span className="mapa-denied-icon">
+            <LockKeyhole size={28} />
+          </span>
           <div>
-            <h2 style={{ margin: 0 }}>
-              Acesso permitido somente para administradores
-            </h2>
-
-            <p
-              style={{
-                marginTop: "10px",
-                color: "#667085",
-              }}
-            >
-              Você não possui permissão para acessar o Mapa operacional.
-            </p>
+            <h2>Acesso não autorizado</h2>
+            <p>Você não possui permissão para acessar o Mapa operacional.</p>
           </div>
         </section>
       </div>
     );
   }
 
-  // RENDER
-  // ====================================================
+  const regiaoParaResumo = regiaoSelecionada;
+  const todosPacotesDaRegiao = regiaoParaResumo
+    ? pacotesDaRegiao(regiaoParaResumo, items)
+    : [];
+  const pacotesDaRegiaoSelecionada = regiaoParaResumo
+    ? pacotesDaRegiao(regiaoParaResumo, itemsPeriodo)
+    : [];
+  const resumoRegiao = regiaoParaResumo
+    ? resumirSlaOperacao(
+        todosPacotesDaRegiao,
+        todosUsuariosNomes,
+        intervaloFiltro
+      )
+    : null;
+  const volumeDiario = regiaoParaResumo
+    ? volumeDiarioRegiao(pacotesDaRegiaoSelecionada)
+    : [];
+  const totalVolumeDiario = volumeDiario.reduce(
+    (soma, dia) => soma + dia.total,
+    0
+  );
+  const mediaVolumeDiario = volumeDiario.length
+    ? totalVolumeDiario / volumeDiario.length
+    : 0;
+  const maiorVolumeDia = volumeDiario.reduce(
+    (maior, dia) => Math.max(maior, dia.total),
+    0
+  );
+  const distribuicaoTipos = distribuicaoTiposRegiao(
+    pacotesDaRegiaoSelecionada
+  );
+  const entregadoresRegiao = regiaoParaResumo
+    ? Array.from(
+        new Set(
+          pacotesDaRegiaoSelecionada
+            .map(usuarioIdRegiao)
+            .filter(Boolean)
+        )
+      ).sort((a, b) =>
+        String(
+          (nomes as Record<string, string>)[a] || nomeUsuario(a, nomes)
+        ).localeCompare(
+          String(
+            (nomes as Record<string, string>)[b] || nomeUsuario(b, nomes)
+          )
+        )
+      )
+    : [];
+  const todosIconesLigados =
+    iconesVisiveis && regioesAtivas.length === regioes.length;
+  const pontosAtuais = regiaoEditando?.pontos || pontosDesenho;
+  const centroInicial: [number, number] =
+    regioes.length && regioes[0].pontos.length
+      ? calcularCentroRegiao(regioes[0].pontos) || regioes[0].pontos[0]
+      : pontos.length
+        ? [pontos[0].lat, pontos[0].lng]
+        : [-14.235, -51.9253];
+  const rotuloPeriodo =
+    periodo === "PERSONALIZADO"
+      ? `${ini} — ${fim}`
+      : periodo === "HOJE"
+        ? "Hoje"
+        : periodo === "DIA_ANTERIOR"
+          ? "Dia anterior"
+          : periodo === "7_DIAS"
+            ? "Últimos 7 dias"
+            : periodo === "30_DIAS"
+              ? "Últimos 30 dias"
+              : "Todo período";
 
   return (
-    <div>
-      <PageHeader
-        title="Mapa operacional"
-        subtitle="Visualização das entregas, regiões e SLA."
-      />
+    <div className="mapa-page mapa-fullpage">
+      <style>{CSS_MAPA}</style>
+      {erro && (
+        <div className="mapa-error" role="alert">
+          <span>{erro}</span>
+          <button
+            type="button"
+            onClick={() => setErro("")}
+            aria-label="Fechar aviso"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+      <main className="mapa-map-shell">
+        <MapContainer
+          center={centroInicial}
+          zoom={regioes.length ? 12 : pontos.length ? 11 : 4}
+          scrollWheelZoom
+          className="mapa-leaflet"
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <AjustarMapa points={pontos} regions={regioes} />
+          <ControleFocoMapa />
+          <MapaClique ativo={isAdmin && modoRegiao && desenhando} onClique={adicionarPonto} onCliqueFora={() => { if (!modoRegiao) setRegiaoSelecionada(null); }} />
 
-      <div className="map-toolbar">
-        <div className="map-filter-title">
-          <Filter size={16} />
-          <span>Filtros do mapa</span>
+          {regioesVisiveis.map((regiao) => {
+            const sendoEditada =
+              Boolean(regiaoEditando) && regiaoEditando?.id === regiao.id;
+            if (sendoEditada) return null;
+            return (
+              <Polygon
+                key={regiao.id}
+                positions={regiao.pontos}
+                pathOptions={{
+                  color: regiao.cor,
+                  fillColor: regiao.cor,
+                  fillOpacity: Math.min(
+                    1,
+                    normalizarTom(regiao.tom) / 100 +
+                      (regiaoSelecionada?.id === regiao.id ? 0.1 : 0)
+                  ),
+                  weight: regiaoSelecionada?.id === regiao.id ? 3 : 2,
+                }}
+                eventHandlers={{
+                  click: (event) => {
+                    if (!modoRegiao) {
+                      pararPropagacaoMapa(event);
+                      setRegiaoSelecionada(regiao);
+                    }
+                  },
+                }}
+              />
+            );
+          })}
+
+          {!modoRegiao &&
+            indicadoresRegioes.map(({ regiao, sla, pacotes: totalPacotes }) => (
+              <IndicadorRegiao
+                key={`indicador-${regiao.id}`}
+                regiao={regiao}
+                sla={sla}
+                pacotes={totalPacotes}
+                onSelecionar={() => setRegiaoSelecionada(regiao)}
+              />
+            ))}
+
+          {isAdmin && modoRegiao && desenhando && pontosDesenho.length > 1 && (
+            <Polyline
+              positions={pontosDesenho}
+              pathOptions={{
+                color: corFinalRegiao,
+                weight: 3,
+                dashArray: "7 6",
+              }}
+            />
+          )}
+
+          {isAdmin && modoRegiao && !desenhando && pontosAtuais.length >= 3 && (
+            <Polygon
+              positions={pontosAtuais}
+              pathOptions={{
+                color: corFinalRegiao,
+                fillColor: corFinalRegiao,
+                fillOpacity: Math.min(1, tomRegiao / 100),
+                weight: 3,
+              }}
+            />
+          )}
+
+          {isAdmin &&
+            modoRegiao &&
+            pontosAtuais.map(([lat, lng], index) => (
+              <Marker
+                key={`vertex-${index}-${lat}-${lng}`}
+                position={[lat, lng]}
+                icon={VERTEX_ICON}
+                draggable
+                eventHandlers={{
+                  click: pararPropagacaoMapa,
+                  contextmenu: (event) => {
+                    pararPropagacaoMapa(event);
+                    removerVerticeEditando(index, !regiaoEditando);
+                  },
+                  dragend: (event) => {
+                    const position = (event.target as L.Marker).getLatLng();
+                    atualizarVertice(
+                      index,
+                      [position.lat, position.lng],
+                      !regiaoEditando
+                    );
+                  },
+                }}
+              />
+            ))}
+
+          {isAdmin &&
+            modoRegiao &&
+            pontosAtuais.length >= 3 &&
+            !desenhando &&
+            pontosMeio(pontosAtuais).map(([lat, lng], index) => (
+              <Marker
+                key={`mid-${index}-${lat}-${lng}`}
+                position={[lat, lng]}
+                icon={MIDPOINT_ICON}
+                eventHandlers={{
+                  click: (event) => {
+                    pararPropagacaoMapa(event);
+                    inserirVertice((index + 1) % pontosAtuais.length, [lat, lng], !regiaoEditando);
+                  },
+                }}
+              />
+            ))}
+
+          {pontosExibidos.map((ponto) => (
+            <Marker
+              key={String(ponto.id || (ponto as any).codigo || `${ponto.lat}-${ponto.lng}`)}
+              position={[ponto.lat, ponto.lng]}
+              icon={criarIcone(ponto)}
+              eventHandlers={{ click: pararPropagacaoMapa }}
+            >
+              <Popup className="mapa-package-popup">
+                <div className="mapa-popup">
+                  <div className="mapa-popup-heading">
+                    <div>
+                      <small>PACOTE</small>
+                      <strong>{codigoPacoteMapa(ponto)}</strong>
+                    </div>
+                    <span
+                      className={`mapa-popup-status status-${String(
+                        ponto.status || ""
+                      ).toLowerCase()}`}
+                    >
+                      {nomeStatus(ponto.status as StatusPacote)}
+                    </span>
+                  </div>
+                  <div className="mapa-popup-grid">
+                    <div>
+                      <small>Tipo</small>
+                      <strong>{nomeTipo(ponto.tipo)}</strong>
+                    </div>
+                    <div>
+                      <small>Usuário</small>
+                      <strong>
+                        {nomeUsuario(ponto.usuarioMapa, nomes) ||
+                          ponto.usuarioMapa ||
+                          "Sem usuário"}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Empresa</small>
+                      <strong>{(ponto as any).empresa || "—"}</strong>
+                    </div>
+                    <div>
+                      <small>Data</small>
+                      <strong>{dataPacote(ponto)}</strong>
+                    </div>
+                  </div>
+                  <div className="mapa-popup-address">
+                    <small>Endereço / localização</small>
+                    <strong>{obterEndereco(ponto)}</strong>
+                  </div>
+                  <div className="mapa-popup-coordinates">
+                    {ponto.lat.toFixed(6)}, {ponto.lng.toFixed(6)}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+
+        <div className="mapa-map-badge">
+          <span className="mapa-live-dot" />
+          {loading ? "Carregando entregas" : `${pontos.length} pontos exibidos`}
         </div>
 
-        <select value={usuario} onChange={(e) => setUsuario(e.target.value)}>
-          <option value="TODOS">Todos os usuários ativos</option>
-          {usuariosAtivos.map((u) => (
-            <option key={u} value={u}>{nomeUsuario(u, nomes)}</option>
-          ))}
-        </select>
+        <button
+          type="button"
+          className="mapa-center-button"
+          onClick={centralizarMapa}
+          title="Centralizar mapa em todas as regiões"
+          aria-label="Centralizar mapa"
+        >
+          <Maximize2 size={15} />
+          Centralizar mapa
+        </button>
 
-        <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
-          <option value="TODOS">Todos os tipos</option>
-          <option value="MERCADO_LIVRE">Mercado Livre</option>
-          <option value="SHOPEE">Shopee</option>
-          <option value="AVULSO">Avulso</option>
-        </select>
+        <button
+          type="button"
+          className="mapa-locate-button"
+          onClick={focarMapa}
+          title="Enquadrar pontos e regiões"
+          aria-label="Enquadrar pontos e regiões"
+        >
+          <LocateFixed size={18} />
+        </button>
 
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="TODOS">Todos os status</option>
-          {(["COLETADO", "ROTA", "ENTREGUE", "AUSENTE", "DEVOLVIDO"] as StatusPacote[]).map((s) => (
-            <option key={s} value={s}>{nomeStatus(s)}</option>
-          ))}
-        </select>
+        {modoRegiao && desenhando && (
+          <div className="mapa-draw-hint">
+            <MapIcon size={16} />
+            <span>
+              Clique no mapa para adicionar pontos
+              <b>{pontosDesenho.length} vértice(s)</b>
+            </span>
+          </div>
+        )}
 
-        <select value={periodo} onChange={(e) => alterarPeriodo(e.target.value)}>
-          <option value="DIA_ANTERIOR">Dia anterior</option>
-          <option value="HOJE">Hoje</option>
-          <option value="7_DIAS">Últimos 7 dias</option>
-          <option value="30_DIAS">Últimos 30 dias</option>
-          <option value="PERSONALIZADO">Personalizado</option>
-          <option value="TODOS">Todo período</option>
-        </select>
+        {loading && (
+          <div className="mapa-loading-shade">
+            <span className="mapa-loader" />
+            Carregando mapa…
+          </div>
+        )}
+
+        {regiaoSelecionada && !modoRegiao && resumoRegiao && (
+          <aside className="mapa-region-panel">
+            <header
+              className="mapa-panel-header"
+              style={{
+                ["--mapa-region-color" as any]: regiaoSelecionada.cor,
+              }}
+            >
+              <div className="mapa-panel-title">
+                <small>REGIÃO</small>
+                <h2>{regiaoSelecionada.nome}</h2>
+                <div className="mapa-panel-sla">
+                  <span>SLA</span>
+                  <strong>{formatarPercentual(resumoRegiao.sla)}</strong>
+                </div>
+              </div>
+              <div className="mapa-panel-actions">
+                {isAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      title="Editar região"
+                      onClick={() => editarRegiao(regiaoSelecionada)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="mapa-panel-action-danger"
+                      title="Excluir região"
+                      onClick={() => void excluirRegiao(regiaoSelecionada)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  title="Fechar painel"
+                  onClick={() => setRegiaoSelecionada(null)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </header>
+
+            <div className="mapa-panel-period">
+              <span>{rotuloPeriodo}</span>
+              <span>{pacotesDaRegiaoSelecionada.length} pacotes na área</span>
+            </div>
+
+            <section className="mapa-panel-block">
+              <div className="mapa-panel-cards">
+                <div className="mapa-panel-card mapa-panel-card-sla">
+                  <small>SLA</small>
+                  <strong>{formatarPercentual(resumoRegiao.sla)}</strong>
+                </div>
+                <div className="mapa-panel-card">
+                  <small>Total</small>
+                  <strong>{resumoRegiao.total}</strong>
+                </div>
+                <div className="mapa-panel-card">
+                  <small>Entregues</small>
+                  <strong>{resumoRegiao.entregues}</strong>
+                </div>
+                <div className="mapa-panel-card">
+                  <small>Ausentes</small>
+                  <strong>{resumoRegiao.ausentes}</strong>
+                </div>
+                <div className="mapa-panel-card">
+                  <small>Rota</small>
+                  <strong>{resumoRegiao.rota}</strong>
+                </div>
+                <div className="mapa-panel-card">
+                  <small>Retornos</small>
+                  <strong>{resumoRegiao.retornos}</strong>
+                </div>
+              </div>
+            </section>
+
+            <section className="mapa-panel-block">
+              <h3>Volume de pacotes</h3>
+              {!volumeDiario.length ? (
+                <p className="mapa-panel-empty">
+                  Sem pacotes no período selecionado para esta área.
+                </p>
+              ) : (
+                <>
+                  <div className="mapa-volume-list">
+                    {volumeDiario.map((dia) => (
+                      <div className="mapa-volume-row" key={dia.chave}>
+                        <span className="mapa-volume-day">
+                          {dia.rotulo}
+                          <i>{dia.dataCurta}</i>
+                        </span>
+                        <span className="mapa-volume-bar">
+                          <i
+                            style={{
+                              width: `${
+                                maiorVolumeDia
+                                  ? Math.max(
+                                      6,
+                                      (dia.total / maiorVolumeDia) * 100
+                                    )
+                                  : 0
+                              }%`,
+                              background: regiaoSelecionada.cor,
+                            }}
+                          />
+                        </span>
+                        <b>{dia.total}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mapa-panel-footnote">
+                    <span>Média diária</span>
+                    <strong>
+                      {formatarNumeroBr(mediaVolumeDiario)} pacotes/dia
+                    </strong>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="mapa-panel-block">
+              <h3>Distribuição de pacotes</h3>
+              <div className="mapa-panel-rows">
+                <div>
+                  <span>Mercado Livre</span>
+                  <b>{distribuicaoTipos.mercadoLivre}</b>
+                </div>
+                <div>
+                  <span>Shopee</span>
+                  <b>{distribuicaoTipos.shopee}</b>
+                </div>
+                <div>
+                  <span>Avulso</span>
+                  <b>{distribuicaoTipos.avulso}</b>
+                </div>
+                <div className="mapa-panel-row-total">
+                  <span>Total</span>
+                  <b>{distribuicaoTipos.total}</b>
+                </div>
+              </div>
+            </section>
+
+            <section className="mapa-panel-block">
+              <h3>Horário das baixas</h3>
+              <div className="mapa-panel-chips">
+                <span>
+                  Até 21h <b>{resumoRegiao.mlAte21}</b>
+                </span>
+                <span>
+                  21h–23h <b>{resumoRegiao.mlEntre21e23}</b>
+                </span>
+                <span>
+                  Após 23h <b>{resumoRegiao.mlApos23}</b>
+                </span>
+              </div>
+              <div className="mapa-panel-rows mapa-panel-rows-compact">
+                <div>
+                  <span>Primeira baixa</span>
+                  <b>
+                    {resumoRegiao.primeira === null
+                      ? "—"
+                      : new Date(resumoRegiao.primeira).toLocaleTimeString(
+                          "pt-BR",
+                          { hour: "2-digit", minute: "2-digit" }
+                        )}
+                  </b>
+                </div>
+                <div>
+                  <span>Última baixa</span>
+                  <b>
+                    {resumoRegiao.ultima === null
+                      ? "—"
+                      : new Date(resumoRegiao.ultima).toLocaleTimeString(
+                          "pt-BR",
+                          { hour: "2-digit", minute: "2-digit" }
+                        )}
+                  </b>
+                </div>
+                <div>
+                  <span>Produtividade</span>
+                  <b>{resumoRegiao.produtividade}</b>
+                </div>
+                <div>
+                  <span>Média/dia (SLA)</span>
+                  <b>{formatarNumeroBr(resumoRegiao.mediaPorDia)}</b>
+                </div>
+              </div>
+            </section>
+
+            <section className="mapa-panel-block">
+              <h3>Retornos</h3>
+              <div className="mapa-panel-rows">
+                <div>
+                  <span>Total de retornos</span>
+                  <b>{resumoRegiao.retornos}</b>
+                </div>
+                <div>
+                  <span>Voltaram à rota</span>
+                  <b>{resumoRegiao.retornaramParaRota}</b>
+                </div>
+                <div>
+                  <span>Entregues após retorno</span>
+                  <b>{resumoRegiao.retornosPosteriormenteEntregues}</b>
+                </div>
+              </div>
+            </section>
+
+            <section className="mapa-panel-block mapa-panel-drivers">
+              <div className="mapa-panel-block-heading">
+                <h3>Entregadores</h3>
+                <span>{entregadoresRegiao.length}</span>
+              </div>
+              {!entregadoresRegiao.length ? (
+                <p className="mapa-panel-empty">
+                  Nenhum entregador identificado pelos pacotes desta área.
+                </p>
+              ) : (
+                <div className="mapa-driver-list">
+                  {entregadoresRegiao.map((id) => {
+                    const pacotesEntregadorNoPeriodo =
+                      pacotesDaRegiaoSelecionada.filter(
+                        (pacote) => usuarioIdRegiao(pacote) === id
+                      );
+                    const pacotesEntregador =
+                      todosPacotesDaRegiao.filter(
+                        (pacote) => usuarioIdRegiao(pacote) === id
+                      );
+                    const resumoEntregador = resumirSlaOperacao(
+                      pacotesEntregador,
+                      todosUsuariosNomes,
+                      intervaloFiltro
+                    );
+                    const nome =
+                      (nomes as Record<string, string>)[id] ||
+                      nomeUsuario(id, nomes) ||
+                      id;
+                    return (
+                      <article className="mapa-driver-card" key={id}>
+                        <span
+                          className="mapa-driver-avatar"
+                          style={{
+                            background: corUsuario(id, entregadoresRegiao),
+                          }}
+                        >
+                          {String(nome).slice(0, 1).toUpperCase()}
+                        </span>
+                        <div className="mapa-driver-body">
+                          <strong>{nome}</strong>
+                          <div>
+                            <span>
+                              {pacotesEntregadorNoPeriodo.length} pacotes
+                            </span>
+                            <span>
+                              SLA{" "}
+                              <b>{formatarPercentual(resumoEntregador.sla)}</b>
+                            </span>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </aside>
+        )}
+
+        {carregandoRegioes && (
+          <div className="mapa-region-loading">Carregando regiões…</div>
+        )}
+
+        <button
+          type="button"
+          className={`mapa-drawer-toggle ${filtrosAbertos ? "open" : ""}`}
+          onClick={() => setFiltrosAbertos((v) => !v)}
+          aria-expanded={filtrosAbertos}
+          title={filtrosAbertos ? "Fechar filtros" : "Abrir filtros"}
+        >
+          <Filter size={16} />
+          <span>Filtros</span>
+        </button>
+
+        <aside className={`mapa-drawer ${filtrosAbertos ? "open" : ""}`} aria-hidden={!filtrosAbertos}>
+          <div className="mapa-drawer-head">
+            <strong>Filtros do mapa</strong>
+            <button type="button" className="mapa-drawer-close" onClick={() => setFiltrosAbertos(false)} aria-label="Fechar filtros">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mapa-drawer-body">
+      <section className="mapa-controls">
+
+        <label className="mapa-field">
+          <span>Usuário</span>
+          <select
+            value={usuario}
+            onChange={(event) => setUsuario(event.target.value)}
+          >
+            <option value="TODOS">Todos os usuários</option>
+            {usuariosAtivos.map((id) => (
+              <option key={id} value={id}>
+                {nomeUsuario(id, nomes)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="mapa-field">
+          <span>Tipo</span>
+          <select
+            value={tipo}
+            onChange={(event) => setTipo(event.target.value)}
+          >
+            <option value="TODOS">Todos os tipos</option>
+            <option value="MERCADO_LIVRE">Mercado Livre</option>
+            <option value="SHOPEE">Shopee</option>
+            <option value="AVULSO">Avulso</option>
+          </select>
+        </label>
+
+        <label className="mapa-field">
+          <span>Status</span>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="TODOS">Todos os status</option>
+            {(
+              [
+                "COLETADO",
+                "ROTA",
+                "ENTREGUE",
+                "AUSENTE",
+                "DEVOLVIDO",
+              ] as StatusPacote[]
+            ).map((item) => (
+              <option key={item} value={item}>
+                {nomeStatus(item)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="mapa-field mapa-period-field">
+          <span>Período</span>
+          <select
+            value={periodo}
+            onChange={(event) => alterarPeriodo(event.target.value)}
+          >
+            <option value="HOJE">Hoje</option>
+            <option value="DIA_ANTERIOR">Dia anterior</option>
+            <option value="7_DIAS">Últimos 7 dias</option>
+            <option value="30_DIAS">Últimos 30 dias</option>
+            <option value="PERSONALIZADO">Personalizado</option>
+            <option value="TODOS">Todo período</option>
+          </select>
+        </label>
 
         {periodo === "PERSONALIZADO" && (
           <>
-            <label className="map-date">De<input type="date" value={ini} onChange={(e) => setIni(e.target.value)} /></label>
-            <label className="map-date">Até<input type="date" value={fim} onChange={(e) => setFim(e.target.value)} /></label>
+            <label className="mapa-field mapa-date-field">
+              <span>De</span>
+              <input
+                type="date"
+                value={ini}
+                onChange={(event) => setIni(event.target.value)}
+              />
+            </label>
+            <label className="mapa-field mapa-date-field">
+              <span>Até</span>
+              <input
+                type="date"
+                value={fim}
+                onChange={(event) => setFim(event.target.value)}
+              />
+            </label>
           </>
         )}
 
-        <button className="secondary map-reload" onClick={carregar} disabled={loading}>
-          <RefreshCw size={15} className={loading ? "spin" : ""} /> Atualizar
-        </button>
+        <div className="mapa-control-actions">
+          <button
+            type="button"
+            className="mapa-button mapa-button-light"
+            onClick={() => void carregar()}
+            disabled={loading}
+            title="Atualizar pacotes"
+          >
+            <RefreshCw
+              size={16}
+              className={loading ? "mapa-spin" : ""}
+            />
+            Atualizar
+          </button>
+        </div>
+      </section>
+      {(regioes.length > 0 || pontos.length > 0) && (
+        <section className="mapa-region-manager" aria-label="Regiões cadastradas">
+          <div className="mapa-region-manager-heading">
+            <strong>Regiões</strong>
+            <small>
+              {iconesVisiveis
+                ? `ícones de ${regioesAtivas.length} de ${regioes.length} região(ões) no mapa`
+                : "ícones ocultos no mapa"}
+            </small>
+          </div>
+          <button
+            type="button"
+            className={`mapa-region-all-toggle ${todosIconesLigados ? "on" : ""}`}
+            onClick={alternarTodasRegioes}
+            title={
+              todosIconesLigados
+                ? "Ocultar todos os ícones do mapa"
+                : "Mostrar todos os ícones do mapa"
+            }
+            aria-pressed={todosIconesLigados}
+          >
+            {todosIconesLigados ? <Eye size={14} /> : <EyeOff size={14} />}
+            <span>
+              {todosIconesLigados
+                ? "Ocultar todos os ícones"
+                : "Mostrar todos os ícones"}
+            </span>
+          </button>
+          <div className="mapa-region-chips">
+            {regioes.map((regiao) => {
+              const ativa = regioesAtivas.includes(regiao.id);
+              return (
+                <div
+                  key={regiao.id}
+                  className={`mapa-region-chip ${ativa ? "on" : ""}`}
+                  style={{ ["--mapa-region-color" as any]: regiao.cor }}
+                >
+                  <button
+                    type="button"
+                    className="mapa-region-chip-name"
+                    onClick={() => setRegiaoSelecionada(regiao)}
+                    title="Ver resumo da região"
+                  >
+                    <i />
+                    <span>{regiao.nome}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="mapa-region-chip-toggle"
+                    onClick={() => alternarRegiaoAtiva(regiao.id)}
+                    title={ativa ? "Ocultar ícones da região" : "Mostrar ícones da região"}
+                    aria-label={ativa ? "Ocultar ícones da região" : "Mostrar ícones da região"}
+                    aria-pressed={ativa}
+                  >
+                    {ativa ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      <section className="mapa-overview" aria-label="Resumo do mapa">
+        <div className="mapa-stat">
+          <span className="mapa-stat-icon blue">
+            <Package size={17} />
+          </span>
+          <div>
+            <small>Pacotes no período</small>
+            <strong>{itemsPeriodo.length.toLocaleString("pt-BR")}</strong>
+          </div>
+        </div>
+        <div className="mapa-stat">
+          <span className="mapa-stat-icon green">
+            <MapPinned size={17} />
+          </span>
+          <div>
+            <small>Pontos no mapa</small>
+            <strong>{pontos.length.toLocaleString("pt-BR")}</strong>
+          </div>
+        </div>
+        <div className="mapa-stat">
+          <span className="mapa-stat-icon violet">
+            <Users size={17} />
+          </span>
+          <div>
+            <small>Entregadores ativos</small>
+            <strong>{usuariosAtivos.length.toLocaleString("pt-BR")}</strong>
+          </div>
+        </div>
+        <div className="mapa-overview-note">
+          {semCoordenadas > 0
+            ? `${semCoordenadas} pacote(s) sem coordenadas válidas`
+            : loading
+              ? "Atualizando pacotes…"
+              : `${regioes.length} região(ões) salvas`}
+        </div>
+      </section>
+          </div>
+        </aside>
 
         {isAdmin && (
-          <button
-            className={modoRegiao ? "secondary" : "primary"}
-            onClick={modoRegiao ? cancelarEdicaoRegiao : iniciarNovaRegiao}
-            disabled={salvandoRegiao}
-          >
-            {modoRegiao ? <X size={15} /> : <Plus size={15} />}
-            {modoRegiao ? "Sair da edição" : "Editar regiões"}
-          </button>
-        )}
-      </div>
-
-      {isAdmin && modoRegiao && (
-        <div style={{ margin: "10px 0", padding: "12px 14px", borderRadius: 12, background: "#eef5ff", color: "#175cd3", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <strong>{desenhando ? "Desenhando região" : "Editando região"}</strong>
-            <div style={{ marginTop: 3 }}>
-              {desenhando
-                ? "Clique para criar os pontos. Arraste os pontos para ajustar. Clique em um ponto com o botão direito para remover."
-                : "Arraste os pontos para aumentar ou reduzir a área. Clique nos pontos menores entre os vértices para adicionar novos pontos."}
-            </div>
-          </div>
-          {desenhando && pontosDesenho.length >= 3 && (
-            <button className="primary" onClick={finalizarDesenho}>
-              <Check size={14} /> Finalizar desenho
+          <div className="mapa-corner-tools">
+            <button
+              type="button"
+              className={`mapa-button ${
+                modoRegiao ? "mapa-button-light" : "mapa-button-primary"
+              }`}
+              onClick={
+                modoRegiao ? cancelarEdicaoRegiao : iniciarNovaRegiao
+              }
+              disabled={salvandoRegiao}
+            >
+              {modoRegiao ? <X size={16} /> : <Plus size={16} />}
+              {modoRegiao ? "Sair da edição" : "Editar regiões"}
             </button>
-          )}
-        </div>
-      )}
-
-      <div className="map-summary">
-        <div><MapPinned size={17} /><b>{pontos.length}</b><span>pontos exibidos</span></div>
-        <div><Package size={17} /><b>{semCoordenadas}</b><span>coordenadas inválidas</span></div>
-        <div><MapIcon size={17} /><b>{regioes.length}</b><span>regiões salvas</span></div>
-      </div>
-
-      <div className="map-layout" style={{ display: "block" }}>
-        <div className="map-card" style={{ height: "calc(100vh - 250px)", minHeight: 650 }}>
-          <MapContainer center={[-23.511, -46.876]} zoom={12} style={{ height: "100%", width: "100%" }}>
-            <TileLayer
-              attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_2sk6_1_9337bda9074165b27049c045"
-              subdomains="abcd"
-              maxZoom={20}
-            />
-
-            <AjustarMapa points={pontos} />
-            <MapaClique ativo={isAdmin && modoRegiao && desenhando} onClique={(ponto) => setPontosDesenho((atual) => [...atual, ponto])} />
-
-            {todasRegioesVisiveis.map((r) => (
-              <Polygon
-                key={r.id}
-                positions={r.pontos}
-                pathOptions={{ color: r.cor, fillColor: r.cor, fillOpacity: 0.14, weight: 2 }}
-                eventHandlers={{ click: () => setRegiaoSelecionada(r) }}
-              />
-            ))}
-
-            {modoRegiao && (regiaoEditando || pontosDesenho.length >= 2) && (
-              <Polygon
-                positions={regiaoEditando?.pontos || pontosDesenho}
-                pathOptions={{ color: corRegiao, fillColor: corRegiao, fillOpacity: 0.10, dashArray: desenhando ? "6 6" : undefined, weight: 2 }}
-              />
-            )}
-
-            {modoRegiao && regiaoEditando && (
-              <>
-                {pontosMeio(regiaoEditando.pontos).map((p, index) => (
-                  <Marker
-                    key={`meio-${regiaoEditando.id}-${index}`}
-                    position={p}
-                    icon={L.divIcon({ className: "", html: `<div style="width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid ${corRegiao};box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })}
-                    eventHandlers={{ click: () => inserirVertice(index + 1, p) }}
-                  />
-                ))}
-                {regiaoEditando.pontos.map((p, index) => (
-                  <Marker
-                    key={`${regiaoEditando.id}-vertice-${index}`}
-                    position={p}
-                    draggable
-                    eventHandlers={{
-                      dragend: (event) => {
-                        const marker = event.target as L.Marker;
-                        const pos = marker.getLatLng();
-                        atualizarVertice(index, [pos.lat, pos.lng]);
-                      },
-                      contextmenu: () => removerVerticeEditando(index),
-                    }}
-                    icon={L.divIcon({ className: "", html: `<div style="width:14px;height:14px;border-radius:50%;background:${corRegiao};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] })}
-                  />
-                ))}
-              </>
-            )}
-
-            {modoRegiao && !regiaoEditando && pontosDesenho.map((p, index) => (
-              <Marker
-                key={`desenho-${index}`}
-                position={p}
-                draggable
-                eventHandlers={{
-                  dragend: (event) => {
-                    const marker = event.target as L.Marker;
-                    const pos = marker.getLatLng();
-                    atualizarPontoNovo(index, [pos.lat, pos.lng]);
-                  },
-                  contextmenu: () => removerPontoNovo(index),
-                }}
-                icon={L.divIcon({ className: "", html: `<div style="width:14px;height:14px;border-radius:50%;background:${corRegiao};border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] })}
-              />
-            ))}
-
-            {modoRegiao && !regiaoEditando && !desenhando && pontosDesenho.length >= 3 && (
-              pontosMeio(pontosDesenho).map((p, index) => (
-                <Marker
-                  key={`meio-novo-${index}`}
-                  position={p}
-                  icon={L.divIcon({ className: "", html: `<div style="width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid ${corRegiao};box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })}
-                  eventHandlers={{ click: () => inserirVerticeNovo(index + 1, p) }}
-                />
-              ))
-            )}
-
-            {pontos.map((p) => (
-              <Marker key={p.id} position={[p.lat, p.lng]} icon={criarIcone(p)}>
-                <Popup>
-                  <div className="map-popup">
-                    <b>{p.codigo}</b>
-                    <span>{nomeTipo(String(p.tipo))}</span>
-                    <span>{nomeStatus(p.status)}</span>
-                    <hr />
-                    <span><strong>Usuário:</strong> {nomeUsuario(p.usuarioMapa, nomes, (p as any).usuarioNome)}</span>
-                    <span><strong>Empresa:</strong> {p.empresa || "-"}</span>
-                    <span><strong>Baixa:</strong> {formatarData((p as any).dataHoraBaixa || p.data)}</span>
-                    <span><strong>Local:</strong> {pegarEndereco(p)}</span>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-
-          {!loading && !pontos.length && <div className="map-empty"><LocateFixed size={15} />Nenhuma entrega encontrada para o período e filtros selecionados.</div>}
-          {loading && <div className="map-loading">Carregando pontos do Firebase...</div>}
-          {erro && <div className="map-error">{erro}</div>}
-        </div>
-      </div>
-
       {isAdmin && modoRegiao && (
-        <section className="card" style={{ marginTop: 14, padding: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <section className="mapa-editor">
+          <div className="mapa-editor-copy">
+            <span className="mapa-editor-icon">
+              <MapIcon size={18} />
+            </span>
             <div>
-              <h3 style={{ margin: 0 }}>{regiaoEditando ? "Editar região" : "Nova região"}</h3>
-              <div style={{ fontSize: 12, color: "#667085", marginTop: 4 }}>Defina nome, cor e entregadores responsáveis.</div>
+              <strong>
+                {regiaoEditando ? "Editando região" : "Desenhar nova região"}
+              </strong>
+              <p>
+                {desenhando
+                  ? "Clique no mapa para adicionar vértices. Arraste os pontos para ajustar."
+                  : "Arraste os vértices para ajustar o formato e salve as alterações."}
+              </p>
             </div>
-            <button className="secondary" onClick={cancelarEdicaoRegiao}><X size={15} />Cancelar</button>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 120px minmax(260px, 2fr)", gap: 12, alignItems: "end" }}>
-            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600 }}>
-              Nome da região
-              <input value={nomeRegiao} onChange={(e) => setNomeRegiao(e.target.value)} placeholder="Ex.: Região A" />
-            </label>
-            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600 }}>
-              <span><Palette size={13} style={{ verticalAlign: "middle" }} /> Cor</span>
-              <input type="color" value={corRegiao} onChange={(e) => setCorRegiao(e.target.value)} style={{ width: "100%", height: 40, padding: 2 }} />
-            </label>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Entregadores da região</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, maxHeight: 100, overflowY: "auto" }}>
-                {usuariosDisponiveis.map((u) => {
-                  const marcado = entregadoresRegiao.includes(u);
-                  return (
-                    <button key={u} type="button" className={marcado ? "primary" : "secondary"} onClick={() => setEntregadoresRegiao((atual) => marcado ? atual.filter((x) => x !== u) : [...atual, u])} style={{ fontSize: 12 }}>
-                      {marcado ? <Check size={13} /> : <Users size={13} />} {nomeUsuario(u, nomes)}
-                    </button>
-                  );
-                })}
+          <div className="mapa-editor-actions">
+            {desenhando && pontosDesenho.length > 0 && (
+              <button
+                type="button"
+                className="mapa-button mapa-button-light"
+                onClick={() =>
+                  setPontosDesenho((atual) => atual.slice(0, -1))
+                }
+              >
+                Desfazer ponto
+              </button>
+            )}
+            {desenhando && pontosDesenho.length >= 3 && (
+              <button
+                type="button"
+                className="mapa-button mapa-button-primary"
+                onClick={finalizarDesenho}
+              >
+                <Check size={15} />
+                Fechar região
+              </button>
+            )}
+            {!desenhando && (
+              <div className="mapa-editor-form">
+                <label className="mapa-field mapa-region-name">
+                  <span>Nome da região</span>
+                  <input
+                    value={nomeRegiao}
+                    onChange={(event) => setNomeRegiao(event.target.value)}
+                    placeholder={`Região ${regioes.length + 1}`}
+                  />
+                </label>
+                <label className="mapa-color-field" title="Cor da região">
+                  <Palette size={15} />
+                  <input
+                    type="color"
+                    value={corRegiao}
+                    onChange={(event) => setCorRegiao(event.target.value)}
+                    aria-label="Cor da região"
+                  />
+                </label>
+                <label className="mapa-tone-field" title="Transparência da área">
+                  <span>Transparente</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={tomRegiao}
+                    onChange={(event) => setTomRegiao(Number(event.target.value))}
+                    aria-label="Transparência da área da região"
+                  />
+                  <span>Sólida</span>
+                  <i style={{ background: corRegiao, opacity: tomRegiao / 100 }} />
+                </label>
+                <span className="mapa-vertex-count">
+                  {pontosAtuais.length} vértices
+                </span>
+                <button
+                  type="button"
+                  className="mapa-button mapa-button-primary"
+                  onClick={() => void salvarRegiao()}
+                  disabled={salvandoRegiao || pontosAtuais.length < 3}
+                >
+                  <Save size={15} />
+                  {salvandoRegiao ? "Salvando..." : "Salvar região"}
+                </button>
               </div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
-            <span style={{ fontSize: 12, color: "#667085" }}>{(regiaoEditando?.pontos || pontosDesenho).length} pontos no desenho</span>
-            <button className="primary" onClick={salvarRegiao} disabled={salvandoRegiao || (regiaoEditando?.pontos || pontosDesenho).length < 3}>
-              <Save size={15} /> {salvandoRegiao ? "Salvando..." : "Salvar região"}
+            )}
+            <button
+              type="button"
+              className="mapa-button mapa-button-quiet"
+              onClick={cancelarEdicaoRegiao}
+              disabled={salvandoRegiao}
+            >
+              Cancelar
             </button>
           </div>
         </section>
       )}
-
-      {regiaoSelecionada && !modoRegiao && (() => {
-        const pacotesRegiao = pacotesDaRegiao(regiaoSelecionada, items);
-        const slaDados = calcularSlaRegiao(pacotesRegiao, nomes as Record<string, string>);
-        const resumo = consolidarSlaRegiao(slaDados);
-        const entregadores = regiaoSelecionada.entregadores;
-        return (
-          <section className="card" style={{ marginTop: 14, padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-              <div>
-                <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 14, height: 14, borderRadius: "50%", background: regiaoSelecionada.cor }} />{regiaoSelecionada.nome}</h3>
-                <div style={{ marginTop: 5, color: "#667085", fontSize: 12 }}>{pacotesRegiao.length} pacotes dentro da região.</div>
-              </div>
-              <div style={{ display: "flex", gap: 7 }}>
-                {isAdmin && <button className="secondary" onClick={() => editarRegiao(regiaoSelecionada)}><Pencil size={14} />Editar</button>}
-                {isAdmin && <button className="secondary" onClick={() => excluirRegiao(regiaoSelecionada)}><Trash2 size={14} />Excluir</button>}
-                <button className="secondary" onClick={() => setRegiaoSelecionada(null)}><X size={14} /></button>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))", gap: 10, marginTop: 14 }}>
-              {[
-                ["SLA", `${resumo.sla.toFixed(1).replace(".", ",")}%`],
-                ["Pacotes", resumo.total],
-                ["Média/dia", resumo.mediaPorDia.toFixed(1).replace(".", ",")],
-                ["Entregues", resumo.entregues],
-                ["Ausentes", resumo.ausentes],
-                ["ROTA", resumo.rota],
-                ["Retornos", resumo.retornos],
-                ["Voltaram à rota", resumo.retornaramParaRota],
-                ["Post. entregues", resumo.retornosPosteriormenteEntregues],
-                ["ML até 21h", resumo.mlAte21],
-                ["ML 21–23h", resumo.mlEntre21e23],
-                ["ML após 23h", resumo.mlApos23],
-              ].map(([label, valor]) => (
-                <div key={String(label)} style={{ border: "1px solid #eaecf0", borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 11, color: "#667085" }}>{label}</div>
-                  <b style={{ fontSize: 18 }}>{valor}</b>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <h4 style={{ margin: "0 0 9px" }}>Entregadores da região</h4>
-              {!entregadores.length && <div style={{ color: "#667085", fontSize: 13 }}>Nenhum entregador associado.</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 10 }}>
-                {entregadores.map((id) => {
-                  const pacotesEntregador = pacotesRegiao.filter((p) => usuarioIdRegiao(p) === id.toLowerCase());
-                  const dados = calcularSlaRegiao(pacotesEntregador, nomes as Record<string, string>);
-                  const r = consolidarSlaRegiao(dados);
-                  return (
-                    <div key={id} style={{ border: "1px solid #eaecf0", borderRadius: 12, padding: 12 }}>
-                      <b>{nomeUsuario(id, nomes) || id}</b>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7, marginTop: 9, fontSize: 12 }}>
-                        <span><strong>SLA:</strong> {r.sla.toFixed(1).replace(".", ",")}%</span>
-                        <span><strong>Pacotes:</strong> {r.total}</span>
-                        <span><strong>Entregues:</strong> {r.entregues}</span>
-                        <span><strong>Ausentes:</strong> {r.ausentes}</span>
-                        <span><strong>ROTA:</strong> {r.rota}</span>
-                        <span><strong>Retornos:</strong> {r.retornos}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        );
-      })()}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
+
+const CSS_MAPA = `
+  .mapa-page {
+    --mapa-ink: #0f172a;
+    --mapa-muted: #64748b;
+    --mapa-border: #e2e8f0;
+    --mapa-blue: #1d4ed8;
+    --mapa-surface: #fff;
+    --mapa-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px -12px rgba(15,23,42,.14);
+    color: var(--mapa-ink);
+    min-width: 0;
+    display: grid;
+    gap: 14px;
+    padding-bottom: 24px;
+    letter-spacing: -.005em;
+  }
+  .mapa-page, .mapa-page * { box-sizing: border-box; }
+  .mapa-controls {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px 18px;
+    margin: 14px 0 0;
+    border: 1px solid var(--mapa-border);
+    border-radius: 18px;
+    background: var(--mapa-surface);
+    box-shadow: var(--mapa-shadow);
+  }
+  .mapa-controls-heading {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 155px;
+    margin-right: 2px;
+    padding: 0 8px 4px 1px;
+  }
+  .mapa-controls-heading strong, .mapa-controls-heading small { display: block; }
+  .mapa-controls-heading strong { font-size: 13px; font-weight: 700; }
+  .mapa-controls-heading small { color: var(--mapa-muted); font-size: 11px; margin-top: 2px; }
+  .mapa-filter-icon, .mapa-editor-icon {
+    width: 34px; height: 34px; display: grid; place-items: center;
+    color: var(--mapa-blue); background: #eff6ff; border-radius: 10px; flex: none;
+  }
+  .mapa-field { display: grid; gap: 5px; min-width: 132px; }
+  .mapa-field > span { color: #667085; font-size: 10px; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
+  .mapa-field select, .mapa-field input {
+    height: 37px; min-width: 0; width: 100%; padding: 0 10px;
+    border: 1px solid #d0d5dd; border-radius: 8px; background: #fff;
+    color: #344054; font: inherit; font-size: 12px; outline: none;
+  }
+  .mapa-field select:focus, .mapa-field input:focus { border-color: #84adff; box-shadow: 0 0 0 3px #eff6ff; }
+  .mapa-period-field { min-width: 142px; }
+  .mapa-date-field { min-width: 132px; }
+  .mapa-control-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  .mapa-button {
+    min-height: 37px; display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: 9px;
+    font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+  }
+  .mapa-button:disabled { opacity: .55; cursor: not-allowed; }
+  .mapa-button:not(:disabled):active { transform: translateY(1px); }
+  .mapa-button-primary { background: #1769e0; color: white; box-shadow: 0 2px 5px rgba(23, 105, 224, .16); }
+  .mapa-button-primary:hover:not(:disabled) { background: #0e57c5; }
+  .mapa-button-light { border-color: #d0d5dd; color: #344054; background: #fff; }
+  .mapa-button-light:hover:not(:disabled), .mapa-button-quiet:hover:not(:disabled) { background: #f8fafc; border-color: #98a2b3; }
+  .mapa-button-quiet { color: #667085; background: transparent; border-color: transparent; }
+
+  /* Gerenciamento discreto das regiões (fora do mapa) */
+  .mapa-region-manager {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+    padding: 12px 16px; margin: 0; border: 1px solid var(--mapa-border);
+    border-radius: 16px; background: #fff; box-shadow: var(--mapa-shadow);
+  }
+  .mapa-region-manager-heading strong { letter-spacing: -.01em; }
+  .mapa-region-manager-heading { display: grid; min-width: 140px; }
+  .mapa-region-manager-heading strong { font-size: 12px; }
+  .mapa-region-manager-heading small { margin-top: 2px; color: var(--mapa-muted); font-size: 10px; }
+  .mapa-region-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .mapa-region-chip {
+    display: flex; align-items: center; gap: 2px; padding: 2px 3px 2px 2px;
+    border: 1px solid #e4e7ec; border-radius: 999px; background: #f9fafb;
+  }
+  .mapa-region-chip.on { border-color: var(--mapa-region-color); background: #fff; }
+  .mapa-region-chip-name {
+    display: flex; align-items: center; gap: 6px; max-width: 170px; padding: 5px 8px;
+    border: 0; border-radius: 999px; background: transparent; color: #344054;
+    font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  }
+  .mapa-region-chip-name i { width: 9px; height: 9px; flex: none; border-radius: 3px; background: var(--mapa-region-color); opacity: .45; }
+  .mapa-region-chip.on .mapa-region-chip-name i { opacity: 1; }
+  .mapa-region-chip-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mapa-region-chip-toggle {
+    width: 26px; height: 26px; display: grid; place-items: center; flex: none;
+    border: 0; border-radius: 999px; color: #98a2b3; background: transparent; cursor: pointer;
+  }
+  .mapa-region-chip.on .mapa-region-chip-toggle { color: var(--mapa-region-color); }
+  .mapa-region-chip-toggle:hover { background: #f2f4f7; }
+  .mapa-region-all-toggle {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 30px; padding: 0 11px; border: 1px solid #d0d5dd; border-radius: 999px;
+    color: #667085; background: #fff; font: inherit; font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .mapa-region-all-toggle:hover { background: #f8fafc; border-color: #98a2b3; }
+  .mapa-region-all-toggle.on { border-color: #1769e0; color: #1769e0; background: #eff6ff; }
+
+  .mapa-editor {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;
+    padding: 12px 15px; margin: 0 0 10px; border: 1px solid #bfd5ff;
+    border-radius: 13px; background: linear-gradient(105deg, #f5f9ff, #fff);
+  }
+  .mapa-editor-copy { display: flex; align-items: center; gap: 10px; }
+  .mapa-editor-copy strong { display: block; font-size: 13px; }
+  .mapa-editor-copy p { margin: 3px 0 0; color: var(--mapa-muted); font-size: 11px; }
+  .mapa-editor-actions, .mapa-editor-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
+  .mapa-region-name { min-width: 190px; }
+  .mapa-color-field {
+    height: 37px; display: flex; align-items: center; gap: 7px; padding: 0 8px;
+    color: #667085; border: 1px solid #d0d5dd; border-radius: 8px; background: white;
+  }
+  .mapa-color-field input { width: 27px; height: 27px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+  .mapa-tone-field {
+    display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 9px;
+    border: 1px solid #d0d5dd; border-radius: 8px; background: white;
+    color: #667085; font-size: 10px; font-weight: 700;
+  }
+  .mapa-tone-field input { width: 96px; cursor: pointer; }
+  .mapa-tone-field i { width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgba(16,24,40,.15); }
+  .mapa-center-button {
+    position: absolute; z-index: 500; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px;
+    border: 1px solid #d0d5dd; border-radius: 999px; background: rgba(255,255,255,.96);
+    color: #344054; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(16,24,40,.14);
+  }
+  .mapa-center-button:hover { color: var(--mapa-blue); border-color: #84adff; }
+  .mapa-vertex-count { align-self: center; color: #667085; font-size: 11px; white-space: nowrap; }
+  .mapa-error {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    margin: 0 0 10px; padding: 10px 12px; border: 1px solid #fecdca;
+    border-radius: 10px; color: #b42318; background: #fff5f4; font-size: 12px;
+  }
+  .mapa-error button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; cursor: pointer; }
+  .mapa-overview {
+    display: grid; align-items: center;
+    grid-template-columns: repeat(3, minmax(160px, 1fr)) minmax(150px, auto);
+    gap: 12px; padding: 14px 18px; margin: 0;
+    border: 1px solid var(--mapa-border); border-radius: 16px; background: white;
+    box-shadow: var(--mapa-shadow);
+  }
+  .mapa-stat {
+    display: flex; align-items: center; gap: 11px; min-width: 0;
+    padding: 4px 12px 4px 0; border-right: 1px solid #eef2f6;
+  }
+  .mapa-stat:last-of-type { border-right: 0; }
+  .mapa-stat-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; }
+  .mapa-stat-icon.blue { color: #1769e0; background: #eff6ff; }
+  .mapa-stat-icon.green { color: #15803d; background: #f0fdf4; }
+  .mapa-stat-icon.violet { color: #7c3aed; background: #f5f3ff; }
+  .mapa-stat small, .mapa-stat strong { display: block; }
+  .mapa-stat small { color: var(--mapa-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  .mapa-stat strong { margin-top: 3px; font-size: 20px; line-height: 1.05; letter-spacing: -.02em; }
+  .mapa-overview-note {
+    justify-self: end; padding: 7px 11px; border-radius: 999px;
+    background: #f5f7fa; color: #64748b; font-size: 11px; font-weight: 600;
+  }
+  .mapa-map-shell {
+    position: relative; isolation: isolate; width: 100%; height: min(76vh, 940px);
+    min-height: 580px; overflow: hidden; border: 1px solid var(--mapa-border);
+    border-radius: 20px; background: #edf2f7;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 24px 48px -24px rgba(15,23,42,.28);
+  }
+  .mapa-leaflet { width: 100%; height: 100%; z-index: 1; background: #e9eff5; }
+  .mapa-map-badge {
+    position: absolute; z-index: 500; top: 13px; left: 13px; display: flex; align-items: center; gap: 7px;
+    padding: 8px 10px; border: 1px solid rgba(228,231,236,.9); border-radius: 999px;
+    background: rgba(255,255,255,.95); box-shadow: 0 2px 8px rgba(16,24,40,.1);
+    color: #344054; font-size: 11px; font-weight: 700; pointer-events: none;
+  }
+  .mapa-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #12b76a; }
+  .mapa-locate-button {
+    position: absolute; z-index: 500; right: 13px; top: 13px; width: 39px; height: 39px;
+    display: grid; place-items: center; color: #344054; border: 1px solid #e4e7ec;
+    border-radius: 10px; background: rgba(255,255,255,.96); box-shadow: 0 2px 8px rgba(16,24,40,.1);
+    cursor: pointer;
+  }
+  .mapa-locate-button:hover { color: var(--mapa-blue); background: white; }
+
+  /* Indicador central da região — cartão compacto com nome, SLA e pacotes */
+  .mapa-region-badge-icon { border: 0; background: transparent; overflow: visible; }
+  .mapa-region-badge {
+    position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    padding: 3px 7px 3px 6px; border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--mapa-region-color) 45%, #d6dbe4);
+    background: rgba(255,255,255,.88);
+    box-shadow: 0 2px 8px rgba(16,24,40,.16);
+    cursor: pointer; font-family: inherit; font-size: 11px; line-height: 1.2;
+    -webkit-font-smoothing: antialiased; opacity: .92;
+    transition: opacity .15s ease, box-shadow .15s ease;
+  }
+  .mapa-region-badge:hover { opacity: 1; box-shadow: 0 4px 14px rgba(16,24,40,.24); z-index: 10; }
+  .mapa-region-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mapa-region-color); flex: none; }
+  .mapa-region-badge-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; color: #101828; font-weight: 700; }
+  .mapa-region-badge-value { color: var(--mapa-region-color); font-weight: 800; }
+  .mapa-region-badge-count { color: #475467; font-weight: 700; padding-left: 5px; border-left: 1px solid #e4e7ec; }
+
+  .mapa-draw-hint {
+    position: absolute; z-index: 500; top: 13px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+    border: 1px solid #b2ccff; border-radius: 11px; color: #194185; background: rgba(239,246,255,.97);
+    box-shadow: 0 3px 12px rgba(16,24,40,.12); font-size: 11px; pointer-events: none;
+  }
+  .mapa-draw-hint span, .mapa-draw-hint b { display: block; }
+  .mapa-draw-hint b { margin-top: 2px; font-size: 10px; }
+  .mapa-loading-shade {
+    position: absolute; z-index: 450; inset: 0; display: flex; align-items: center; justify-content: center; gap: 9px;
+    color: #344054; background: rgba(248,250,252,.58); backdrop-filter: blur(1px); font-size: 12px; pointer-events: none;
+  }
+  .mapa-loader { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-top-color: #1769e0; border-radius: 50%; animation: mapa-spin .75s linear infinite; }
+  .mapa-region-loading { position: absolute; z-index: 510; right: 62px; top: 17px; color: #667085; font-size: 11px; }
+
+  /* Painel da região */
+  .mapa-region-panel {
+    position: absolute; z-index: 600; top: 12px; right: 12px; bottom: 12px;
+    display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100% - 24px));
+    overflow-y: auto; padding: 16px; border: 1px solid rgba(228,231,236,.95); border-radius: 16px;
+    background: rgba(255,255,255,.985); box-shadow: 0 14px 40px rgba(16,24,40,.22);
+  }
+  .mapa-panel-header {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+    padding: 12px; border: 1px solid #eaecf0; border-left: 4px solid var(--mapa-region-color);
+    border-radius: 12px; background: #fbfcfe;
+  }
+  .mapa-panel-title { min-width: 0; }
+  .mapa-panel-title small { display: block; color: #98a2b3; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+  .mapa-panel-title h2 { margin: 3px 0 0; font-size: 17px; line-height: 1.2; overflow-wrap: anywhere; }
+  .mapa-panel-sla { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; }
+  .mapa-panel-sla span { color: #667085; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+  .mapa-panel-sla strong { color: var(--mapa-region-color); font-size: 19px; line-height: 1; }
+  .mapa-panel-actions { display: flex; gap: 4px; flex: none; }
+  .mapa-panel-actions button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #eaecf0; border-radius: 8px; color: #667085; background: white; cursor: pointer; }
+  .mapa-panel-actions button:hover { color: #1769e0; border-color: #b2ccff; }
+  .mapa-panel-actions .mapa-panel-action-danger:hover { color: #b42318; border-color: #fecdca; }
+  .mapa-panel-period { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 9px; color: #475467; background: #f8fafc; font-size: 10px; font-weight: 600; }
+  .mapa-panel-block { display: grid; gap: 9px; }
+  .mapa-panel-block h3 { margin: 0; color: #344054; font-size: 11px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+  .mapa-panel-block-heading { display: flex; align-items: center; justify-content: space-between; }
+  .mapa-panel-block-heading > span { min-width: 21px; padding: 3px 7px; border-radius: 99px; color: #175cd3; background: #eff6ff; text-align: center; font-size: 10px; font-weight: 700; }
+  .mapa-panel-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .mapa-panel-card { min-height: 58px; padding: 9px; border: 1px solid #eaecf0; border-radius: 10px; background: #fff; }
+  .mapa-panel-card small, .mapa-panel-card strong { display: block; }
+  .mapa-panel-card small { color: #667085; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .mapa-panel-card strong { margin-top: 6px; color: #182230; font-size: 17px; line-height: 1; }
+  .mapa-panel-card-sla { border-color: #c7d7fe; background: #f5f8ff; }
+  .mapa-panel-card-sla strong { color: #175cd3; }
+  .mapa-volume-list { display: grid; gap: 5px; }
+  .mapa-volume-row { display: grid; grid-template-columns: 104px 1fr 30px; align-items: center; gap: 8px; }
+  .mapa-volume-day { display: grid; color: #475467; font-size: 10px; font-weight: 600; }
+  .mapa-volume-day i { color: #98a2b3; font-size: 9px; font-style: normal; }
+  .mapa-volume-bar { height: 7px; border-radius: 99px; background: #f2f4f7; overflow: hidden; }
+  .mapa-volume-bar i { display: block; height: 100%; border-radius: 99px; }
+  .mapa-volume-row b { color: #182230; font-size: 11px; text-align: right; }
+  .mapa-panel-footnote { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 9px; background: #f8fafc; }
+  .mapa-panel-footnote span { color: #667085; font-size: 10px; font-weight: 700; }
+  .mapa-panel-footnote strong { color: #182230; font-size: 12px; }
+  .mapa-panel-rows { display: grid; gap: 1px; border: 1px solid #eaecf0; border-radius: 10px; overflow: hidden; background: #eaecf0; }
+  .mapa-panel-rows > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; background: #fff; }
+  .mapa-panel-rows span { color: #667085; font-size: 11px; }
+  .mapa-panel-rows b { color: #182230; font-size: 12px; }
+  .mapa-panel-rows-compact > div { padding: 7px 10px; }
+  .mapa-panel-row-total { background: #f8fafc !important; }
+  .mapa-panel-row-total span, .mapa-panel-row-total b { font-weight: 800; color: #182230; }
+  .mapa-panel-chips { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
+  .mapa-panel-chips span { display: flex; justify-content: space-between; gap: 5px; padding: 8px; border: 1px solid #eaecf0; border-radius: 9px; color: #667085; font-size: 9px; }
+  .mapa-panel-chips b { color: #182230; font-size: 11px; }
+  .mapa-panel-empty { margin: 0; color: #667085; font-size: 11px; }
+  .mapa-panel-drivers { min-height: 0; }
+  .mapa-driver-list { display: grid; gap: 7px; }
+  .mapa-driver-card { display: flex; align-items: center; gap: 9px; padding: 9px; border: 1px solid #eaecf0; border-radius: 10px; }
+  .mapa-driver-avatar { width: 29px; height: 29px; display: grid; place-items: center; flex: none; border-radius: 9px; color: white; font-size: 12px; font-weight: 700; }
+  .mapa-driver-body { min-width: 0; flex: 1; }
+  .mapa-driver-body > strong { display: block; overflow: hidden; color: #344054; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .mapa-driver-body > div { display: flex; gap: 13px; margin-top: 4px; color: #667085; font-size: 9px; }
+  .mapa-driver-body b { color: #344054; }
+
+  .mapa-popup { min-width: 245px; max-width: 300px; color: #182230; font-size: 12px; line-height: 1.4; }
+  .mapa-popup-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid #eaecf0; }
+  .mapa-popup-heading small, .mapa-popup-heading strong, .mapa-popup-grid small, .mapa-popup-grid strong, .mapa-popup-address small, .mapa-popup-address strong { display: block; }
+  .mapa-popup-heading small, .mapa-popup-grid small, .mapa-popup-address small { color: #667085; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+  .mapa-popup-heading strong { margin-top: 2px; font-size: 14px; overflow-wrap: anywhere; }
+  .mapa-popup-status { padding: 4px 6px; border-radius: 99px; color: #344054; background: #f2f4f7; font-size: 9px; font-weight: 700; white-space: nowrap; }
+  .mapa-popup-status.status-entregue { color: #027a48; background: #ecfdf3; }
+  .mapa-popup-status.status-ausente { color: #b42318; background: #fef3f2; }
+  .mapa-popup-status.status-rota { color: #175cd3; background: #eff8ff; }
+  .mapa-popup-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 10px 0; }
+  .mapa-popup-grid strong, .mapa-popup-address strong { margin-top: 3px; color: #344054; font-size: 11px; overflow-wrap: anywhere; }
+  .mapa-popup-address { padding-top: 8px; border-top: 1px solid #eaecf0; }
+  .mapa-popup-coordinates { margin-top: 8px; color: #98a2b3; font-size: 9px; }
+  .mapa-state-card { min-height: 250px; display: flex; align-items: center; justify-content: center; margin-top: 14px; padding: 24px; border: 1px solid #eaecf0; border-radius: 14px; background: white; color: #475467; font-size: 14px; }
+  .mapa-denied { gap: 16px; text-align: left; }
+  .mapa-denied-icon { width: 56px; height: 56px; display: grid; place-items: center; flex: none; border-radius: 15px; color: #b42318; background: #fef3f2; }
+  .mapa-denied h2 { margin: 0; color: #182230; font-size: 18px; }
+  .mapa-denied p { margin: 7px 0 0; color: #667085; font-size: 13px; }
+  .mapa-vertex-icon, .mapa-midpoint-icon { border: 0; background: transparent; }
+  .mapa-vertex-dot { display: block; width: 16px; height: 16px; margin: 2px; border: 3px solid white; border-radius: 50%; background: #1769e0; box-shadow: 0 1px 5px rgba(16,24,40,.45); cursor: grab; }
+  .mapa-midpoint-plus { display: grid; place-items: center; width: 21px; height: 21px; border: 2px solid white; border-radius: 50%; color: white; background: #1769e0; box-shadow: 0 1px 5px rgba(16,24,40,.4); font: 700 15px/1 sans-serif; cursor: pointer; }
+  .mapa-spin { animation: mapa-spin .8s linear infinite; }
+  @keyframes mapa-spin { to { transform: rotate(360deg); } }
+  @media (max-width: 1100px) {
+    .mapa-controls-heading { min-width: 145px; }
+    .mapa-controls { align-items: flex-end; }
+    .mapa-control-actions { margin-left: 0; }
+    .mapa-map-shell { height: 70vh; min-height: 520px; }
+    .mapa-overview { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .mapa-overview-note { grid-column: 1 / -1; justify-self: start; }
+  }
+  @media (max-width: 700px) {
+    .mapa-controls { gap: 8px; padding: 11px; }
+    .mapa-controls-heading { width: 100%; padding-bottom: 2px; }
+    .mapa-field { flex: 1 1 calc(50% - 8px); min-width: 120px; }
+    .mapa-control-actions { width: 100%; }
+    .mapa-control-actions .mapa-button { flex: 1; }
+    .mapa-overview { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; padding: 12px; }
+    .mapa-stat { border-right: 0; padding-right: 0; }
+    .mapa-overview-note { grid-column: 1 / -1; justify-self: start; }
+    .mapa-region-manager { align-items: flex-start; }
+    .mapa-map-shell { height: 68vh; min-height: 470px; border-radius: 12px; }
+    .mapa-region-panel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 66%; padding: 12px; gap: 10px; }
+    .mapa-draw-hint { top: 60px; width: max-content; max-width: calc(100% - 24px); }
+    .mapa-editor { align-items: flex-start; }
+    .mapa-editor-actions { width: 100%; }
+    .mapa-editor-form { width: 100%; }
+    .mapa-region-name { flex: 1; }
+    .mapa-vertex-count { display: none; }
+  }
+  @media (max-width: 390px) {
+    .mapa-panel-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .mapa-panel-chips { grid-template-columns: 1fr; }
+    .mapa-volume-row { grid-template-columns: 88px 1fr 28px; }
+    .mapa-region-panel { max-height: 72%; }
+  }
+
+  /* ===== Tela cheia + gaveta de filtros ===== */
+  .mapa-page.mapa-fullpage { position: relative; padding: 0 !important; gap: 0 !important; max-width: none !important; }
+  .mapa-fullpage .mapa-error { position: absolute; z-index: 900; top: 12px; left: 50%; transform: translateX(-50%); }
+  .mapa-fullpage .mapa-map-shell { height: calc(100vh - 16px); min-height: 480px; border-radius: 0; border: 0; box-shadow: none; }
+  .mapa-fullpage .leaflet-top.leaflet-left { top: 56px; }
+  .mapa-fullpage .mapa-map-badge { top: auto; bottom: 18px; left: 13px; }
+  .mapa-drawer-toggle {
+    position: absolute; z-index: 700; top: 13px; left: 13px; display: inline-flex; align-items: center; gap: 7px;
+    height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: #0f172a; color: #fff;
+    font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 6px 18px rgba(15,23,42,.3);
+    transition: left .3s ease, background .2s;
+  }
+  .mapa-drawer-toggle.open { left: 373px; background: #1d4ed8; }
+  .mapa-drawer {
+    position: absolute; z-index: 800; top: 0; left: 0; bottom: 0; width: 360px; max-width: calc(100% - 50px);
+    display: flex; flex-direction: column; background: #fff; box-shadow: 12px 0 40px -12px rgba(15,23,42,.35);
+    transform: translateX(-105%); transition: transform .3s ease;
+  }
+  .mapa-drawer.open { transform: translateX(0); }
+  .mapa-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e4e7ec; }
+  .mapa-drawer-head strong { font-size: 15px; color: #0f172a; }
+  .mapa-drawer-close { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; color: #344054; cursor: pointer; }
+  .mapa-drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .mapa-drawer .mapa-controls, .mapa-drawer .mapa-region-manager, .mapa-drawer .mapa-overview {
+    display: flex !important; flex-direction: column; align-items: stretch !important; gap: 10px;
+    margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent;
+  }
+  .mapa-drawer .mapa-field, .mapa-drawer .mapa-control-actions, .mapa-drawer .mapa-control-actions .mapa-button { width: 100%; flex: none; margin: 0; }
+  .mapa-drawer .mapa-region-manager, .mapa-drawer .mapa-overview { padding-top: 14px; border-top: 1px solid #e4e7ec; }
+  .mapa-drawer .mapa-region-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mapa-drawer .mapa-stat { border: 0; padding: 0; }
+  .mapa-drawer .mapa-overview-note { justify-self: auto; align-self: flex-start; }
+  .mapa-corner-tools { position: absolute; z-index: 650; top: 62px; right: 13px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: calc(100% - 26px); }
+  .mapa-corner-tools > .mapa-button { box-shadow: 0 6px 18px rgba(15,23,42,.25); }
+  .mapa-corner-tools .mapa-editor { width: min(380px, calc(100vw - 40px)); margin: 0; flex-direction: column; align-items: stretch; background: #fff; border-radius: 14px; padding: 14px; box-shadow: 0 16px 40px -12px rgba(15,23,42,.4); }
+  .mapa-corner-tools .mapa-editor-actions, .mapa-corner-tools .mapa-editor-form { flex-wrap: wrap; width: 100%; }
+  .mapa-fullpage .mapa-draw-hint { top: 13px; }
+  .mapa-corner-tools .mapa-editor { width: auto; max-width: min(340px, calc(100vw - 40px)); padding: 8px 10px; gap: 6px; border-radius: 12px; }
+  .mapa-corner-tools .mapa-editor-copy { gap: 6px; }
+  .mapa-corner-tools .mapa-editor-copy p, .mapa-corner-tools .mapa-editor-icon { display: none; }
+  .mapa-corner-tools .mapa-editor-copy strong { font-size: 12px; }
+  .mapa-corner-tools .mapa-editor-actions { gap: 6px; justify-content: flex-end; }
+  .mapa-corner-tools .mapa-editor .mapa-button { height: 30px; padding: 0 10px; font-size: 12px; }
+  .mapa-corner-tools .mapa-editor-form { gap: 6px; }
+  .mapa-corner-tools .mapa-vertex-count { display: none; }
+  @media (max-width: 700px) {
+    .mapa-fullpage .mapa-map-shell { height: calc(100vh - 8px); border-radius: 0; }
+    .mapa-drawer-toggle.open { left: auto; right: 13px; }
+    .mapa-drawer { width: 100%; max-width: 100%; }
+    .mapa-drawer-toggle.open { display: none; }
+  }
+`;

@@ -23,5 +23,9 @@ service cloud.firestore {
     match /devolucao/{id} {
       allow read, write: if signedIn();
     }
+
+    match /regioes_mapa/{id} {
+      allow read, write: if signedIn();
+    }
   }
 }

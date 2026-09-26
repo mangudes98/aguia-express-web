@@ -1451,14 +1451,25 @@ export default function Financeiro() {
       id: string,
       nome: string
     ) {
+      const chave =
+        normalizar(id) ||
+        normalizar(nome) ||
+        "sem_transportadora";
+
       if (
-        !transportadoras.has(id)
+        !transportadoras.has(chave)
       ) {
         transportadoras.set(
-          id,
+          chave,
           {
-            id,
-            nome,
+            id:
+              id ||
+              nome ||
+              "sem_transportadora",
+            nome:
+              nome ||
+              id ||
+              "Sem Transportadora",
             quantidade: 0,
             valor: 0,
             qtdML: 0,
@@ -1472,7 +1483,7 @@ export default function Financeiro() {
       }
 
       return transportadoras.get(
-        id
+        chave
       )!;
     }
 
@@ -1618,42 +1629,43 @@ export default function Financeiro() {
         n(ganho.valor);
 
       const tipo =
-        normalizar(ganho.tipo);
+        normalizar(ganho.tipo)
+          .normalize("NFD")
+          .replace(
+            /[\u0300-\u036f]/g,
+            ""
+          );
+
+      const idTransportadora =
+        String(
+          ganho.transportadoraId ||
+            ganho.transportadora ||
+            "sem_transportadora"
+        );
+
+      const nomeTransportadora =
+        String(
+          ganho.transportadoraNome ||
+            ganho.transportadora ||
+            "Sem Transportadora"
+        );
+
+      const t =
+        garantirTransportadora(
+          idTransportadora,
+          nomeTransportadora
+        );
 
       if (tipo === "credito") {
         creditos += valor;
-      }
-
-      if (tipo === "debito") {
+        t.creditos += valor;
+      } else if (
+        tipo === "debito"
+      ) {
         debitos += valor;
+        t.debitos += valor;
       }
     });
-
-    const primeiraTransportadora =
-      transportadoras.values().next().value;
-
-    if (primeiraTransportadora) {
-      primeiraTransportadora.creditos =
-        creditos;
-
-      primeiraTransportadora.debitos =
-        debitos;
-    } else if (
-      creditos > 0 ||
-      debitos > 0
-    ) {
-      const t =
-        garantirTransportadora(
-          "sem_transportadora",
-          "Sem Transportadora"
-        );
-
-      t.creditos =
-        creditos;
-
-      t.debitos =
-        debitos;
-    }
 
     const porTransportadora =
       Array.from(

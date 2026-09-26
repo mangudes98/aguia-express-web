@@ -214,8 +214,8 @@ function usePermission() {
 
 function usuarioId(p: any) {
   return String(
-    p.usuarioFinalizacao ||
-      p.usuario ||
+    p.usuario ||
+      p.usuarioFinalizacao ||
       p.usuarioEntrega ||
       p.entregador ||
       p.emailUsuario ||
@@ -243,8 +243,8 @@ function nomeUsuario(
   ).trim();
 
   return (
-    nomeDireto ||
     usuariosMap[id] ||
+    nomeDireto ||
     id ||
     "Sem usuário"
   );

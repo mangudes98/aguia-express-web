@@ -397,9 +397,9 @@ function usuarioPacote(
   pacote: AnyDoc
 ) {
   return normalizar(
-    pacote.usuarioFinalizacao ||
+    pacote.usuario ||
+      pacote.usuarioFinalizacao ||
       pacote.usuarioId ||
-      pacote.usuario ||
       pacote.userId ||
       pacote.entregadorId ||
       pacote.motoristaId ||

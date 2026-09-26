@@ -1211,9 +1211,9 @@ export default function Mapa() {
   // página e permanecem cadastradas no Firestore. Mantido somente em memória
   // enquanto a página estiver aberta.
   const [regioesAtivas, setRegioesAtivas] = useState<string[]>([]);
-  // Filtro geral dos ícones de pacote: quando desligado, NENHUM pin aparece
-  // no mapa (inclusive os que estão fora de qualquer região).
-  const [iconesVisiveis, setIconesVisiveis] = useState(true);
+  // Filtro geral dos ícones de pacote: começa desligado e, enquanto estiver
+  // assim, nenhum pin aparece no mapa (inclusive fora das regiões).
+  const [iconesVisiveis, setIconesVisiveis] = useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [modoRegiao, setModoRegiao] = useState(false);
   const [desenhando, setDesenhando] = useState(false);
@@ -1307,9 +1307,9 @@ export default function Mapa() {
             )
         );
       setRegioes(lista);
-      // As áreas ficam sempre visíveis; o olho controla só os ícones dos
-      // pacotes da região. Ao carregar, os ícones de todas as regiões aparecem.
-      setRegioesAtivas(lista.map((regiao) => regiao.id));
+      // As áreas ficam sempre visíveis, mas os ícones começam desligados.
+      // O usuário escolhe no filtro quais regiões deseja exibir.
+      setRegioesAtivas([]);
     } catch (error) {
       console.error("Erro ao carregar regiões:", error);
       setErro("Não foi possível carregar as regiões do mapa.");

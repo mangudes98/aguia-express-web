@@ -1321,12 +1321,10 @@ function ListaTipo({
             .map<Code>(
               x => ({ id: x.id, ...x.data() }) as Code
             )
-            .sort(compararPelaEntrada)
-            .filter(x =>
-              String(x.tipo || "")
-                .toUpperCase()
-                .includes(filter.toUpperCase())
+            .filter(
+              x => tipo(x.codigo || x.id) === filter
             )
+            .sort(compararPelaEntrada)
         );
       }
     );

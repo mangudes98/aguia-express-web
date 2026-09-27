@@ -68,7 +68,7 @@ type ConfigGanhos = {
   valorAvulso?: any;
 };
 
-type Aba = "REPASSES" | "EMPRESAS";
+type Aba = "REPASSES" | `TRANSPORTADORA:${string}`;
 
 type ModoEmpresa =
   | "LISTA"
@@ -447,14 +447,39 @@ function dataEntrega(
 function dataPacoteEmpresa(
   pacote: AnyDoc
 ): Date | null {
-  return (
-    data(
-      pacote.dataColeta ||
-        pacote.dataHoraColeta ||
-        pacote.data ||
-        pacote.createdAt
-    ) || dataEntrega(pacote)
+  const historico = Array.isArray(pacote.historico)
+    ? pacote.historico
+    : [];
+
+  // O campo "data" muda quando o pacote avança de status. A data
+  // confiável da receita é a primeira entrada COLETADO do histórico.
+  const coletaHistorico = historico.find(
+    (item: any) =>
+      String(item?.status || "").trim().toUpperCase() === "COLETADO"
   );
+
+  if (coletaHistorico) {
+    return data(
+      coletaHistorico.dataHora ||
+        coletaHistorico.data ||
+        coletaHistorico.timestamp
+    );
+  }
+
+  // Compatibilidade com documentos antigos sem histórico.
+  if (statusPacote(pacote) === "COLETADO") {
+    return data(pacote.data);
+  }
+
+  return null;
+}
+
+function dataRepasseFechamento(
+  pacote: AnyDoc
+): Date | null {
+  // Mantém o mesmo critério do FechamentoEmpresaScreen:
+  // status ENTREGUE + dataHora, com fallback para data.
+  return data(pacote.dataHora) || data(pacote.data);
 }
 
 function periodoAnterior(
@@ -1347,19 +1372,34 @@ export default function Financeiro() {
             normalizar(chave)
       );
 
+    const transportadora =
+      pacote.transportadora ||
+      coleta?.transportadora;
+    const transportadoraObjeto =
+      transportadora &&
+      typeof transportadora === "object"
+        ? transportadora
+        : null;
+
     return {
       transportadoraId:
         String(
           pacote.transportadoraId ||
             coleta?.transportadoraId ||
-            coleta?.transportadora ||
+            transportadoraObjeto?.id ||
+            (typeof transportadora === "string"
+              ? transportadora
+              : "") ||
             "sem_transportadora"
         ),
       transportadoraNome:
         String(
           pacote.transportadoraNome ||
             coleta?.transportadoraNome ||
-            coleta?.transportadora ||
+            transportadoraObjeto?.nome ||
+            (typeof transportadora === "string"
+              ? transportadora
+              : "") ||
             "Sem Transportadora"
         ),
     };
@@ -2048,8 +2088,8 @@ export default function Financeiro() {
         return;
       }
 
-      const dataPacote =
-        dataPacoteEmpresa(pacote);
+       const dataPacote =
+         dataPacoteEmpresa(pacote);
 
       if (
         !dentroPeriodo(
@@ -2135,8 +2175,8 @@ export default function Financeiro() {
         return;
       }
 
-      const entrega =
-        dataEntrega(pacote);
+       const entrega =
+         dataRepasseFechamento(pacote);
 
       if (
         !dentroPeriodo(
@@ -2260,29 +2300,193 @@ export default function Financeiro() {
       dataFimFechamento,
     ]);
 
-  const empresasFiltradas =
-    useMemo(() => {
-      const termo =
-        busca.trim().toLowerCase();
+  function transportadoraDaEmpresa(empresa: AnyDoc) {
+    const pastas = Array.isArray(empresa.pastas)
+      ? empresa.pastas.map((item: any) => normalizar(item))
+      : [];
 
-      if (!termo) {
-        return empresas;
+    const coletasEmpresa = coletas.filter((coleta) => {
+      const ids = [
+        coleta.id,
+        coleta.nome,
+        coleta.pasta,
+        coleta.pastaId,
+      ]
+        .filter(Boolean)
+        .map(normalizar);
+
+      return ids.some((id) => pastas.includes(id));
+    });
+
+    const pacoteEmpresa = pacotes.find((pacote) =>
+      pacotePertenceEmpresa(pacote, empresa)
+    );
+
+    const fontes: any[] = [
+      empresa,
+      ...coletasEmpresa,
+      ...(pacoteEmpresa ? [empresaDaColeta(pacoteEmpresa)] : []),
+    ];
+
+    for (const fonte of fontes) {
+      const transportadora = fonte?.transportadora;
+      const transportadoraObjeto =
+        transportadora && typeof transportadora === "object"
+          ? transportadora
+          : null;
+
+      const id = String(
+        fonte?.transportadoraId ||
+          transportadoraObjeto?.id ||
+          (typeof transportadora === "string"
+            ? transportadora
+            : "") ||
+          ""
+      ).trim();
+
+      const nome = String(
+        fonte?.transportadoraNome ||
+          transportadoraObjeto?.nome ||
+          (typeof transportadora === "string"
+            ? transportadora
+            : "") ||
+          ""
+      ).trim();
+
+      if (id || nome) {
+        return {
+          id: id || nome,
+          nome: nome || id,
+        };
       }
+    }
 
-      return empresas.filter(
-        (empresa) =>
-          String(
-            empresa.nome ||
-              empresa.razaoSocial ||
-              empresa.id
-          )
-            .toLowerCase()
-            .includes(termo)
+    return {
+      id: "sem_transportadora",
+      nome: "Sem Transportadora",
+    };
+  }
+
+  const transportadorasResumo = useMemo(() => {
+    const anterior = periodoAnterior(
+      inicioRepasse,
+      fimRepasse
+    );
+
+    const mapa = new Map<string, AnyDoc>();
+
+    empresas.forEach((empresa) => {
+      const transportadora = transportadoraDaEmpresa(empresa);
+      const chave = normalizar(
+        transportadora.id || transportadora.nome
+      ) || "sem_transportadora";
+
+      const atual = calcularEmpresa(
+        empresa,
+        inicioRepasse,
+        fimRepasse
       );
-    }, [
-      empresas,
-      busca,
-    ]);
+
+      const passado = calcularEmpresa(
+        empresa,
+        anterior.inicio,
+        anterior.fim
+      );
+
+      const existente = mapa.get(chave) || {
+        id: transportadora.id,
+        nome: transportadora.nome,
+        empresas: [],
+        atual: {
+          qtdML: 0,
+          qtdShopee: 0,
+          qtdAvulso: 0,
+          totalPacotes: 0,
+          totalReceita: 0,
+          totalRepasse: 0,
+          lucroBruto: 0,
+        },
+        anterior: {
+          qtdML: 0,
+          qtdShopee: 0,
+          qtdAvulso: 0,
+          totalPacotes: 0,
+          totalReceita: 0,
+          totalRepasse: 0,
+          lucroBruto: 0,
+        },
+      };
+
+      existente.empresas.push({
+        empresa,
+        atual,
+        anterior: passado,
+      });
+
+      existente.atual.qtdML += atual.qtdML;
+      existente.atual.qtdShopee += atual.qtdShopee;
+      existente.atual.qtdAvulso += atual.qtdAvulso;
+      existente.atual.totalPacotes += atual.totalPacotes;
+      existente.atual.totalReceita += atual.totalReceber;
+      existente.atual.totalRepasse += atual.totalRepasse;
+      existente.atual.lucroBruto += atual.lucro;
+
+      existente.anterior.qtdML += passado.qtdML;
+      existente.anterior.qtdShopee += passado.qtdShopee;
+      existente.anterior.qtdAvulso += passado.qtdAvulso;
+      existente.anterior.totalPacotes += passado.totalPacotes;
+      existente.anterior.totalReceita += passado.totalReceber;
+      existente.anterior.totalRepasse += passado.totalRepasse;
+      existente.anterior.lucroBruto += passado.lucro;
+
+      mapa.set(chave, existente);
+    });
+
+    return Array.from(mapa.values()).sort((a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR")
+    );
+  }, [
+    empresas,
+    coletas,
+    pacotes,
+    users,
+    configGanhos,
+    ganhos,
+    inicioRepasse,
+    fimRepasse,
+  ]);
+
+  const transportadoraSelecionadaId =
+    aba.startsWith("TRANSPORTADORA:")
+      ? aba.slice("TRANSPORTADORA:".length)
+      : "";
+
+  const transportadoraAtual =
+    transportadorasResumo.find(
+      (item) =>
+        normalizar(item.id) ===
+        normalizar(transportadoraSelecionadaId)
+    ) || null;
+
+  const empresasDaTransportadora = useMemo(() => {
+    if (!transportadoraAtual) return [];
+
+    const termo = busca.trim().toLowerCase();
+
+    return transportadoraAtual.empresas
+      .map((item: AnyDoc) => item.empresa)
+      .filter((empresa: AnyDoc) => {
+        if (!termo) return true;
+
+        return String(
+          empresa.nome ||
+            empresa.razaoSocial ||
+            empresa.id
+        )
+          .toLowerCase()
+          .includes(termo);
+      });
+  }, [transportadoraAtual, busca]);
 
   const historicoEmpresa =
     useMemo(() => {
@@ -2965,19 +3169,25 @@ export default function Financeiro() {
           }}
         />
 
-        <AbaBotao
-          ativo={aba === "EMPRESAS"}
-          texto="EMPRESAS"
-          icon={
-            <Building2 size={17} />
-          }
-          onClick={() => {
-            setAba("EMPRESAS");
-            setBusca("");
-            setEmpresaSelecionada(null);
-            setModoEmpresa("LISTA");
-          }}
-        />
+        {transportadorasResumo.map((transportadora) => {
+          const abaTransportadora =
+            `TRANSPORTADORA:${transportadora.id}` as Aba;
+
+          return (
+            <AbaBotao
+              key={abaTransportadora}
+              ativo={aba === abaTransportadora}
+              texto={transportadora.nome}
+              icon={<Truck size={17} />}
+              onClick={() => {
+                setAba(abaTransportadora);
+                setBusca("");
+                setEmpresaSelecionada(null);
+                setModoEmpresa("LISTA");
+              }}
+            />
+          );
+        })}
       </div>
 
       {loading && (
@@ -3582,9 +3792,200 @@ export default function Financeiro() {
         )}
 
       {!loading &&
-        aba === "EMPRESAS" &&
+        aba.startsWith("TRANSPORTADORA:") &&
         !empresaSelecionada && (
           <>
+            {transportadoraAtual && (
+              <section
+                className="card"
+                style={{
+                  padding: 18,
+                  marginBottom: 16,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 14,
+                    flexWrap: "wrap",
+                    marginBottom: 16,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 9,
+                      }}
+                    >
+                      <Truck size={22} color={GOLD} />
+                      <h3 style={{ margin: 0 }}>
+                        {transportadoraAtual.nome}
+                      </h3>
+                    </div>
+                    <small
+                      style={{
+                        display: "block",
+                        color: "#64748b",
+                        marginTop: 6,
+                      }}
+                    >
+                      Resumo de todas as empresas •{" "}
+                      {labelQuinzena(quinzena)} •{" "}
+                      {inicioRepasse.toLocaleDateString("pt-BR")} até{" "}
+                      {fimRepasse.toLocaleDateString("pt-BR")}
+                    </small>
+                  </div>
+
+                  <span
+                    style={{
+                      color: "#92400e",
+                      background: "#fffbeb",
+                      border: `1px solid ${GOLD}`,
+                      borderRadius: 20,
+                      padding: "7px 11px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {transportadoraAtual.empresas.length} empresa(s)
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(155px,1fr))",
+                    gap: 10,
+                  }}
+                >
+                  <InfoCard
+                    titulo="TOTAL DE RECEITA"
+                    valor={br(
+                      transportadoraAtual.atual.totalReceita
+                    )}
+                  />
+                  <InfoCard
+                    titulo="TOTAL DE REPASSE"
+                    valor={br(
+                      transportadoraAtual.atual.totalRepasse
+                    )}
+                  />
+                  <InfoCard
+                    titulo="LUCRO BRUTO"
+                    valor={br(
+                      transportadoraAtual.atual.lucroBruto
+                    )}
+                  />
+                  <InfoCard
+                    titulo="MERCADO LIVRE"
+                    valor={String(
+                      transportadoraAtual.atual.qtdML
+                    )}
+                  />
+                  <InfoCard
+                    titulo="SHOPEE"
+                    valor={String(
+                      transportadoraAtual.atual.qtdShopee
+                    )}
+                  />
+                  <InfoCard
+                    titulo="AVULSO"
+                    valor={String(
+                      transportadoraAtual.atual.qtdAvulso
+                    )}
+                  />
+                </div>
+
+                <TituloSecao>
+                  COMPARAÇÃO COM A ÚLTIMA QUINZENA
+                </TituloSecao>
+
+                <Comparativo
+                  label="Receita"
+                  atual={transportadoraAtual.atual.totalReceita}
+                  anterior={
+                    transportadoraAtual.anterior.totalReceita
+                  }
+                  atualTexto={br(
+                    transportadoraAtual.atual.totalReceita
+                  )}
+                  anteriorTexto={br(
+                    transportadoraAtual.anterior.totalReceita
+                  )}
+                />
+                <Comparativo
+                  label="Repasse"
+                  atual={transportadoraAtual.atual.totalRepasse}
+                  anterior={
+                    transportadoraAtual.anterior.totalRepasse
+                  }
+                  atualTexto={br(
+                    transportadoraAtual.atual.totalRepasse
+                  )}
+                  anteriorTexto={br(
+                    transportadoraAtual.anterior.totalRepasse
+                  )}
+                />
+                <Comparativo
+                  label="Lucro bruto"
+                  atual={transportadoraAtual.atual.lucroBruto}
+                  anterior={
+                    transportadoraAtual.anterior.lucroBruto
+                  }
+                  atualTexto={br(
+                    transportadoraAtual.atual.lucroBruto
+                  )}
+                  anteriorTexto={br(
+                    transportadoraAtual.anterior.lucroBruto
+                  )}
+                />
+                <Comparativo
+                  label="Mercado Livre"
+                  atual={transportadoraAtual.atual.qtdML}
+                  anterior={
+                    transportadoraAtual.anterior.qtdML
+                  }
+                  atualTexto={String(
+                    transportadoraAtual.atual.qtdML
+                  )}
+                  anteriorTexto={String(
+                    transportadoraAtual.anterior.qtdML
+                  )}
+                />
+                <Comparativo
+                  label="Shopee"
+                  atual={transportadoraAtual.atual.qtdShopee}
+                  anterior={
+                    transportadoraAtual.anterior.qtdShopee
+                  }
+                  atualTexto={String(
+                    transportadoraAtual.atual.qtdShopee
+                  )}
+                  anteriorTexto={String(
+                    transportadoraAtual.anterior.qtdShopee
+                  )}
+                />
+                <Comparativo
+                  label="Avulso"
+                  atual={transportadoraAtual.atual.qtdAvulso}
+                  anterior={
+                    transportadoraAtual.anterior.qtdAvulso
+                  }
+                  atualTexto={String(
+                    transportadoraAtual.atual.qtdAvulso
+                  )}
+                  anteriorTexto={String(
+                    transportadoraAtual.anterior.qtdAvulso
+                  )}
+                />
+              </section>
+            )}
+
             <section className="card">
               <div
                 style={{
@@ -3605,7 +4006,7 @@ export default function Financeiro() {
                       margin: 0,
                     }}
                   >
-                    Empresas
+                    Empresas da transportadora
                   </h3>
 
                   <p
@@ -3648,7 +4049,7 @@ export default function Financeiro() {
                   gap: 14,
                 }}
               >
-                {empresasFiltradas.map(
+                {empresasDaTransportadora.map(
                   (empresa) => (
                     <div
                       key={empresa.id}
@@ -3826,7 +4227,7 @@ export default function Financeiro() {
                   )
                 )}
 
-                {!empresasFiltradas.length && (
+                {!empresasDaTransportadora.length && (
                   <div
                     style={{
                       gridColumn:
@@ -3838,7 +4239,7 @@ export default function Financeiro() {
                         "#64748b",
                     }}
                   >
-                    Nenhuma empresa encontrada.
+                     Nenhuma empresa encontrada nesta transportadora.
                   </div>
                 )}
               </div>
@@ -3847,7 +4248,7 @@ export default function Financeiro() {
         )}
 
       {!loading &&
-        aba === "EMPRESAS" &&
+        aba.startsWith("TRANSPORTADORA:") &&
         empresaSelecionada && (
           <>
             <div
@@ -3875,7 +4276,7 @@ export default function Financeiro() {
                   );
                 }}
               >
-                ← Empresas
+                ← {transportadoraAtual?.nome || "Transportadoras"}
               </button>
 
               <div

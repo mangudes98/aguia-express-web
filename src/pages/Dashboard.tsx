@@ -36,6 +36,158 @@ const getYesterday = () => {
   return day(d);
 };
 
+
+// ===== SLA POR EMPRESA (MERCADO LIVRE / SHOPEE) =====
+// MESMA LOGICA DA OPERACAO: a faixa de horario e definida pela ULTIMA
+// movimentacao ENTREGUE do historico do pacote.
+function dataHistoricoSla(valor: any): number | null {
+  if (valor?.toDate instanceof Function) {
+    const data = valor.toDate();
+    return data instanceof Date ? data.getTime() : null;
+  }
+
+  const timestamp = timestampMs(valor);
+  if (Number.isFinite(timestamp)) return timestamp;
+
+  if (typeof valor === "string") {
+    const parsed = Date.parse(valor);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function movimentosEntregaSla(pacote: any) {
+  const fonte = pacote?.historico;
+  const itens = Array.isArray(fonte)
+    ? fonte
+    : fonte && typeof fonte === "object"
+      ? Object.values(fonte)
+      : [];
+
+  return itens
+    .filter(
+      (item): item is Record<string, any> =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        !Array.isArray(item)
+    )
+    .map(item => ({
+      data: dataHistoricoSla(item.dataHora),
+      status: String(item.status || "").trim().toUpperCase(),
+    }))
+    .filter(
+      (item): item is { data: number; status: string } =>
+        item.data !== null && item.status === "ENTREGUE"
+    )
+    .sort((a, b) => a.data - b.data);
+}
+
+function textoEmpresaSla(pacote: any) {
+  return [
+    pacote?.empresa,
+    pacote?.tipo,
+    pacote?.transportadora,
+    pacote?.origem,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function isMercadoLivreSla(pacote: any) {
+  const texto = textoEmpresaSla(pacote);
+
+  return (
+    /MERCADO[\s_-]*LIVRE/.test(texto) ||
+    texto.includes("MELI")
+  );
+}
+
+function isShopeeSla(pacote: any) {
+  return textoEmpresaSla(pacote).includes("SHOPEE");
+}
+
+// CIRCULO DE PORCENTAGEM DO SLA
+function CirculoPercentualSla({
+  percentual,
+  cor,
+  legenda,
+  quantidade,
+  total,
+}: {
+  percentual: number;
+  cor: string;
+  legenda: string;
+  quantidade: number;
+  total: number;
+}) {
+  const raio = 34;
+  const circunferencia = 2 * Math.PI * raio;
+  const preenchido = (Math.min(percentual, 100) / 100) * circunferencia;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "8px",
+        minWidth: "110px",
+        flex: "1",
+      }}
+    >
+      <div style={{ position: "relative", width: "86px", height: "86px" }}>
+        <svg width="86" height="86">
+          <circle
+            cx="43"
+            cy="43"
+            r={raio}
+            fill="none"
+            stroke="#eef1f5"
+            strokeWidth="9"
+          />
+          <circle
+            cx="43"
+            cy="43"
+            r={raio}
+            fill="none"
+            stroke={cor}
+            strokeWidth="9"
+            strokeLinecap="round"
+            strokeDasharray={`${preenchido} ${circunferencia}`}
+            transform="rotate(-90 43 43)"
+            style={{ transition: "stroke-dasharray .5s ease" }}
+          />
+        </svg>
+
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 800,
+            fontSize: "15px",
+          }}
+        >
+          {percentual}%
+        </div>
+      </div>
+
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: "11px", fontWeight: 800 }}>{legenda}</div>
+
+        <div style={{ fontSize: "11px", color: "#667085" }}>
+          {quantidade} de {total}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const yesterday = getYesterday();
 
@@ -146,6 +298,62 @@ setAllowed(
 
   const pct = (n: number) =>
     total ? Math.round((n * 100) / total) : 0;
+
+  // SLA POR EMPRESA: MERCADO LIVRE E SHOPEE, SOMENTE PACOTES DO PERIODO DO FILTRO
+  const slaEmpresas = useMemo(() => {
+    const criar = () => ({
+      total: 0,
+      ate21: 0,
+      entre21e23: 0,
+      apos23: 0,
+    });
+
+    const mercadoLivre = criar();
+    const shopee = criar();
+
+    pacotes.forEach(p => {
+      const entregas = movimentosEntregaSla(p);
+
+      if (!entregas.length) return;
+
+      const ultimaEntrega = entregas[entregas.length - 1];
+      const d = new Date(ultimaEntrega.data);
+      const minutos = d.getHours() * 60 + d.getMinutes();
+
+      if (isMercadoLivreSla(p)) {
+        mercadoLivre.total++;
+
+        if (minutos <= 21 * 60) mercadoLivre.ate21++;
+        else if (minutos <= 23 * 60) mercadoLivre.entre21e23++;
+        else mercadoLivre.apos23++;
+      } else if (isShopeeSla(p)) {
+        shopee.total++;
+
+        if (minutos <= 21 * 60) shopee.ate21++;
+        else if (minutos <= 23 * 60) shopee.entre21e23++;
+        else shopee.apos23++;
+      }
+    });
+
+    const comPercentual = (e: {
+      total: number;
+      ate21: number;
+      entre21e23: number;
+      apos23: number;
+    }) => ({
+      ...e,
+      pctAte21: e.total ? Math.round((e.ate21 * 100) / e.total) : 0,
+      pctEntre21e23: e.total
+        ? Math.round((e.entre21e23 * 100) / e.total)
+        : 0,
+      pctApos23: e.total ? Math.round((e.apos23 * 100) / e.total) : 0,
+    });
+
+    return {
+      mercadoLivre: comPercentual(mercadoLivre),
+      shopee: comPercentual(shopee),
+    };
+  }, [pacotes]);
 
   const ult = [...pacotes]
     .sort(
@@ -340,6 +548,98 @@ setAllowed(
           </div>
         ))}
       </div>
+
+      {/* SLA POR EMPRESA - CIRCULOS DE PORCENTAGEM */}
+      <section className="card">
+        <div className="card-title">
+          <div>
+            <h3>SLA por empresa</h3>
+            <p>
+              Entregas por faixa de horário · {ini} até {fim}
+            </p>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: "20px",
+          }}
+        >
+          {(
+            [
+              ["Mercado Livre", slaEmpresas.mercadoLivre],
+              ["Shopee", slaEmpresas.shopee],
+            ] as const
+          ).map(([nome, e]) => (
+            <div
+              key={nome}
+              style={{
+                border: "1px solid #eef1f5",
+                borderRadius: "14px",
+                padding: "18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "16px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <b style={{ fontSize: "14px" }}>{nome}</b>
+
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#667085",
+                  }}
+                >
+                  Total: {e.total}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "10px",
+                }}
+              >
+                <CirculoPercentualSla
+                  percentual={e.pctAte21}
+                  cor="#16a34a"
+                  legenda="Até 21:00"
+                  quantidade={e.ate21}
+                  total={e.total}
+                />
+
+                <CirculoPercentualSla
+                  percentual={e.pctEntre21e23}
+                  cor="#f59e0b"
+                  legenda="21:01–23:00"
+                  quantidade={e.entre21e23}
+                  total={e.total}
+                />
+
+                <CirculoPercentualSla
+                  percentual={e.pctApos23}
+                  cor="#ef4444"
+                  legenda="Após 23:00"
+                  quantidade={e.apos23}
+                  total={e.total}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* PERFORMANCE */}
       <div className="grid-2">

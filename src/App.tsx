@@ -15,6 +15,7 @@ import PacoteDetalhe from "./pages/PacoteDetalhe";
 import Coleta from "./pages/Coleta";
 import Rastreamento from "./pages/Rastreamento";
 import WhatsApp from "./pages/whatsapp";
+import FinanceiroGeral from "./pages/FinanceiroGeral";
 
 function LoginRedirect() {
   const { user, loading } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/mapa" element={<Mapa />} />
           <Route path="/rastreamento" element={<Rastreamento />} />
           <Route path="/financeiro" element={<Financeiro />} />
+          <Route path="/financeiro-geral" element={<FinanceiroGeral />} />
           <Route path="/whatsapp" element={<WhatsApp />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
         </Route>

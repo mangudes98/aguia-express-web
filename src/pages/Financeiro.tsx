@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDollarSign,
+  Edit3,
   Clock3,
   Eye,
   EyeOff,
@@ -20,9 +21,11 @@ import {
   History,
   LockKeyhole,
   Package,
+  Plus,
   RefreshCw,
   Save,
   Search,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Truck,
@@ -34,6 +37,7 @@ import {
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -68,6 +72,36 @@ type ConfigGanhos = {
   valorAvulso?: any;
 };
 
+type Frequencia =
+  | "FIXO"
+  | "DIARIO"
+  | "SEMANAL"
+  | "QUINZENAL"
+  | "MENSAL";
+
+type Gasto = AnyDoc & {
+  nome: string;
+  icone: string;
+  cor: string;
+  valor: number;
+  frequencia: Frequencia;
+  transportadoraId: string;
+  transportadoraNome: string;
+  empresaId?: string;
+  empresaNome?: string;
+  ativo?: boolean;
+  observacoes?: string;
+};
+
+type MetaPacote = AnyDoc & {
+  transportadoraId: string;
+  transportadoraNome?: string;
+  ml?: any;
+  shopee?: any;
+  avulso?: any;
+};
+
+
 type Aba = "REPASSES" | `TRANSPORTADORA:${string}`;
 
 type ModoEmpresa =
@@ -75,6 +109,8 @@ type ModoEmpresa =
   | "DADOS"
   | "FECHAMENTO"
   | "HISTORICO";
+
+type ModoPeriodo = "QUINZENA" | "LIVRE";
 
 const GOLD = "#C9A227";
 
@@ -89,6 +125,69 @@ const campoStyle: CSSProperties = {
   color: "#17202d",
   fontSize: 14,
 };
+
+const frequencias: Array<{
+  value: Frequencia;
+  label: string;
+}> = [
+  { value: "FIXO", label: "Valor fixo no período" },
+  { value: "DIARIO", label: "Valor por dia" },
+  { value: "SEMANAL", label: "Valor por semana" },
+  { value: "QUINZENAL", label: "Valor por quinzena" },
+  { value: "MENSAL", label: "Valor por mês" },
+];
+
+const iconesGasto = [
+  "💰",
+  "⛽",
+  "🚚",
+  "🛞",
+  "🔧",
+  "🧰",
+  "🛠️",
+  "🚗",
+  "🏢",
+  "🏠",
+  "📦",
+  "📋",
+  "🧾",
+  "💳",
+  "🏦",
+  "📈",
+  "📉",
+  "💵",
+  "🪙",
+  "🧮",
+  "📊",
+  "🖥️",
+  "💻",
+  "📱",
+  "☎️",
+  "🌐",
+  "⚡",
+  "💡",
+  "💧",
+  "🔥",
+  "🔌",
+  "🧹",
+  "🧼",
+  "🗑️",
+  "📣",
+  "📢",
+  "✉️",
+  "👥",
+  "👤",
+  "🍽️",
+  "☕",
+  "🛒",
+  "🚨",
+  "🛡️",
+  "⚖️",
+  "🧑‍💼",
+  "📅",
+  "⏰",
+  "✅",
+];
 
 const MESES = [
   "Janeiro",
@@ -249,6 +348,37 @@ function diaFim(d: Date) {
   );
 }
 
+function dataParaInput(d: Date) {
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+
+  return `${ano}-${mes}-${dia}`;
+}
+
+function dataDoInput(valor: string, fim = false) {
+  const partes = valor.split("-").map(Number);
+
+  if (
+    partes.length !== 3 ||
+    partes.some((parte) => !Number.isFinite(parte))
+  ) {
+    return null;
+  }
+
+  const dataInformada = new Date(
+    partes[0],
+    partes[1] - 1,
+    partes[2]
+  );
+
+  if (Number.isNaN(dataInformada.getTime())) {
+    return null;
+  }
+
+  return fim ? diaFim(dataInformada) : diaInicio(dataInformada);
+}
+
 function dentroPeriodo(
   valor: Date | null,
   inicio: Date,
@@ -262,6 +392,79 @@ function dentroPeriodo(
   return (
     tempo >= inicio.getTime() &&
     tempo <= fim.getTime()
+  );
+}
+
+function diasNoPeriodo(inicio: Date, fim: Date) {
+  return (
+    Math.floor(
+      (diaInicio(fim).getTime() -
+        diaInicio(inicio).getTime()) /
+        86400000
+    ) + 1
+  );
+}
+
+function diasOperacionaisNoPeriodo(
+  inicio: Date,
+  fim: Date
+) {
+  let total = 0;
+  const cursor = diaInicio(inicio);
+  const limite = diaInicio(fim);
+
+  while (cursor.getTime() <= limite.getTime()) {
+    const diaSemana = cursor.getDay();
+
+    if (diaSemana >= 1 && diaSemana <= 5) {
+      total += 1;
+    } else if (diaSemana === 6) {
+      total += 0.5;
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return total;
+}
+
+function quantidadeCobrancas(
+  frequencia: Frequencia,
+  inicio: Date,
+  fim: Date
+) {
+  const dias = diasNoPeriodo(inicio, fim);
+
+  if (frequencia === "DIARIO") return dias;
+  if (frequencia === "SEMANAL") return Math.ceil(dias / 7);
+  if (frequencia === "QUINZENAL") return Math.ceil(dias / 15);
+
+  if (frequencia === "MENSAL") {
+    return (
+      (fim.getFullYear() - inicio.getFullYear()) * 12 +
+      fim.getMonth() -
+      inicio.getMonth() +
+      1
+    );
+  }
+
+  return 1;
+}
+
+function gastoNoPeriodo(
+  gasto: Gasto,
+  inicio: Date,
+  fim: Date
+) {
+  if (gasto.ativo === false) return 0;
+
+  return (
+    n(gasto.valor) *
+    quantidadeCobrancas(
+      gasto.frequencia || "FIXO",
+      inicio,
+      fim
+    )
   );
 }
 
@@ -318,6 +521,80 @@ function intervaloQuinzena(
       59,
       999
     ),
+  };
+}
+
+function intervaloMesFinanceiro(referencia: Date) {
+  const inicio =
+    referencia.getDate() >= 16
+      ? new Date(
+          referencia.getFullYear(),
+          referencia.getMonth(),
+          16,
+          0,
+          0,
+          0,
+          0
+        )
+      : new Date(
+          referencia.getFullYear(),
+          referencia.getMonth() - 1,
+          16,
+          0,
+          0,
+          0,
+          0
+        );
+
+  return {
+    inicio,
+    fim: new Date(
+      inicio.getFullYear(),
+      inicio.getMonth() + 1,
+      15,
+      23,
+      59,
+      59,
+      999
+    ),
+  };
+}
+
+function primeiraQuinzenaFinanceira(
+  referencia: Date
+) {
+  const mes = intervaloMesFinanceiro(referencia);
+
+  return {
+    inicio: mes.inicio,
+    fim: new Date(
+      mes.inicio.getFullYear(),
+      mes.inicio.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999
+    ),
+  };
+}
+
+function segundaQuinzenaFinanceira(
+  referencia: Date
+) {
+  const mes = intervaloMesFinanceiro(referencia);
+
+  return {
+    inicio: new Date(
+      mes.inicio.getFullYear(),
+      mes.inicio.getMonth() + 1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ),
+    fim: mes.fim,
   };
 }
 
@@ -744,6 +1021,11 @@ function AbaBotao({
         gap: 8,
         fontWeight: 800,
         cursor: "pointer",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
       }}
     >
       {icon}
@@ -919,6 +1201,12 @@ export default function Financeiro() {
   const [ganhos, setGanhos] =
     useState<AnyDoc[]>([]);
 
+  const [gastos, setGastos] =
+    useState<Gasto[]>([]);
+
+  const [metasPacote, setMetasPacote] =
+    useState<MetaPacote[]>([]);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -946,6 +1234,26 @@ export default function Financeiro() {
 
   const [quinzena, setQuinzena] =
     useState(periodoInicial.quinzena);
+
+  const [modoPeriodo, setModoPeriodo] =
+    useState<ModoPeriodo>("QUINZENA");
+
+  const intervaloInicial = intervaloQuinzena(
+    periodoInicial.mes,
+    periodoInicial.ano,
+    periodoInicial.quinzena
+  );
+
+  const [
+    dataInicioLivre,
+    setDataInicioLivre,
+  ] = useState(dataParaInput(intervaloInicial.inicio));
+
+  const [
+    dataFimLivre,
+    setDataFimLivre,
+  ] = useState(dataParaInput(intervaloInicial.fim));
+
 
   const [
     dataInicioFechamento,
@@ -1003,6 +1311,27 @@ export default function Financeiro() {
     setMostrarSenha,
   ] = useState(false);
 
+  const [gastoAberto, setGastoAberto] =
+    useState<Gasto | null>(null);
+
+  const [modalGasto, setModalGasto] =
+    useState(false);
+
+
+  const [salvandoGasto, setSalvandoGasto] =
+    useState(false);
+
+  const [formGasto, setFormGasto] = useState({
+    nome: "",
+    icone: "💰",
+    cor: GOLD,
+    valor: "",
+    frequencia: "FIXO" as Frequencia,
+    empresaId: "TODAS",
+    observacoes: "",
+    ativo: true,
+  });
+
   const [
     dadosEmpresa,
     setDadosEmpresa,
@@ -1019,21 +1348,37 @@ export default function Financeiro() {
     ativo: true,
   });
 
-  const intervaloRepasse = useMemo(
-    () =>
-      intervaloQuinzena(
-        mes,
-        ano,
-        quinzena
-      ),
-    [mes, ano, quinzena]
-  );
+  const intervaloRepasse = useMemo(() => {
+    if (modoPeriodo === "LIVRE") {
+      const inicio = dataDoInput(dataInicioLivre);
+      const fim = dataDoInput(dataFimLivre, true);
+
+      if (inicio && fim && inicio.getTime() <= fim.getTime()) {
+        return { inicio, fim };
+      }
+    }
+
+    return intervaloQuinzena(mes, ano, quinzena);
+  }, [
+    modoPeriodo,
+    dataInicioLivre,
+    dataFimLivre,
+    mes,
+    ano,
+    quinzena,
+  ]);
 
   const inicioRepasse =
     intervaloRepasse.inicio;
 
   const fimRepasse =
     intervaloRepasse.fim;
+
+  const periodoSelecionadoTexto =
+    modoPeriodo === "LIVRE"
+      ? "Período livre"
+      : labelQuinzena(quinzena);
+
 
   // VERIFICA SE É ADMIN
   useEffect(() => {
@@ -1102,6 +1447,8 @@ export default function Financeiro() {
         fechamentosSnap,
         configGanhosSnap,
         ganhosSnap,
+        gastosSnap,
+        metasSnap,
       ] = await Promise.all([
         listarRepasses().catch((error) => {
           console.error(
@@ -1153,6 +1500,24 @@ export default function Financeiro() {
           collection(
             db,
             "ganhos"
+          )
+        ).catch(() => ({
+          docs: [],
+        })),
+
+        getDocs(
+          collection(
+            db,
+            "gastos_financeiros"
+          )
+        ).catch(() => ({
+          docs: [],
+        })),
+
+        getDocs(
+          collection(
+            db,
+            "metas_valor_pacote"
           )
         ).catch(() => ({
           docs: [],
@@ -1214,6 +1579,24 @@ export default function Financeiro() {
 
       setGanhos(
         ganhosSnap.docs.map(
+          (item: any) => ({
+            id: item.id,
+            ...item.data(),
+          })
+        )
+      );
+
+      setGastos(
+        gastosSnap.docs.map(
+          (item: any) => ({
+            id: item.id,
+            ...item.data(),
+          })
+        )
+      );
+
+      setMetasPacote(
+        metasSnap.docs.map(
           (item: any) => ({
             id: item.id,
             ...item.data(),
@@ -2154,6 +2537,9 @@ export default function Financeiro() {
       qtdAvulso * valorAvulso;
 
     let totalRepasse = 0;
+    let totalRepasseML = 0;
+    let totalRepasseShopee = 0;
+    let totalRepasseAvulso = 0;
 
     const codigosRepasse =
       new Set<string>();
@@ -2212,11 +2598,21 @@ export default function Financeiro() {
             pacote.plataforma
         );
 
-      totalRepasse +=
+      const repasse =
         valorUsuario(
           usuario,
           tipo
         );
+
+      totalRepasse += repasse;
+
+      if (tipo === "MERCADO_LIVRE") {
+        totalRepasseML += repasse;
+      } else if (tipo === "SHOPEE") {
+        totalRepasseShopee += repasse;
+      } else {
+        totalRepasseAvulso += repasse;
+      }
     });
 
     return {
@@ -2243,6 +2639,9 @@ export default function Financeiro() {
 
       totalReceber,
       totalRepasse,
+      totalRepasseML,
+      totalRepasseShopee,
+      totalRepasseAvulso,
 
       lucro:
         totalReceber -
@@ -2367,6 +2766,51 @@ export default function Financeiro() {
     };
   }
 
+  function gastoPertenceTransportadora(
+    gasto: Gasto,
+    transportadoraId: string,
+    transportadoraNome?: string
+  ) {
+    // Quando existe ID, ele é a chave única. O nome só é usado
+    // para compatibilidade com registros antigos sem ID.
+    if (gasto.transportadoraId) {
+      return (
+        normalizar(gasto.transportadoraId) ===
+        normalizar(transportadoraId)
+      );
+    }
+
+    const nomesAntigos = [
+      (gasto as AnyDoc).transportadora,
+      gasto.transportadoraNome,
+    ]
+      .filter(Boolean)
+      .map(normalizar);
+
+    return nomesAntigos.includes(normalizar(transportadoraNome));
+  }
+
+  function calcularGastosTransportadora(
+    transportadoraId: string,
+    transportadoraNome: string,
+    inicio: Date,
+    fim: Date
+  ) {
+    return gastos
+      .filter((gasto) =>
+        gastoPertenceTransportadora(
+          gasto,
+          transportadoraId,
+          transportadoraNome
+        )
+      )
+      .reduce(
+        (total, gasto) =>
+          total + gastoNoPeriodo(gasto, inicio, fim),
+        0
+      );
+  }
+
   const transportadorasResumo = useMemo(() => {
     const anterior = periodoAnterior(
       inicioRepasse,
@@ -2401,7 +2845,13 @@ export default function Financeiro() {
           qtdML: 0,
           qtdShopee: 0,
           qtdAvulso: 0,
-          totalPacotes: 0,
+          receitaML: 0,
+          receitaShopee: 0,
+           receitaAvulso: 0,
+           repasseML: 0,
+           repasseShopee: 0,
+           repasseAvulso: 0,
+           totalPacotes: 0,
           totalReceita: 0,
           totalRepasse: 0,
           lucroBruto: 0,
@@ -2410,6 +2860,12 @@ export default function Financeiro() {
           qtdML: 0,
           qtdShopee: 0,
           qtdAvulso: 0,
+          receitaML: 0,
+          receitaShopee: 0,
+          receitaAvulso: 0,
+          repasseML: 0,
+          repasseShopee: 0,
+          repasseAvulso: 0,
           totalPacotes: 0,
           totalReceita: 0,
           totalRepasse: 0,
@@ -2423,13 +2879,30 @@ export default function Financeiro() {
         anterior: passado,
       });
 
+      existente.atual.receitaML +=
+        atual.qtdML * atual.valorML;
+      existente.atual.receitaShopee +=
+        atual.qtdShopee * atual.valorShopee;
+      existente.atual.receitaAvulso +=
+        atual.qtdAvulso * atual.valorAvulso;
+
       existente.atual.qtdML += atual.qtdML;
       existente.atual.qtdShopee += atual.qtdShopee;
       existente.atual.qtdAvulso += atual.qtdAvulso;
       existente.atual.totalPacotes += atual.totalPacotes;
       existente.atual.totalReceita += atual.totalReceber;
       existente.atual.totalRepasse += atual.totalRepasse;
+       existente.atual.repasseML += atual.totalRepasseML;
+       existente.atual.repasseShopee += atual.totalRepasseShopee;
+       existente.atual.repasseAvulso += atual.totalRepasseAvulso;
       existente.atual.lucroBruto += atual.lucro;
+
+      existente.anterior.receitaML +=
+        passado.qtdML * passado.valorML;
+      existente.anterior.receitaShopee +=
+        passado.qtdShopee * passado.valorShopee;
+      existente.anterior.receitaAvulso +=
+        passado.qtdAvulso * passado.valorAvulso;
 
       existente.anterior.qtdML += passado.qtdML;
       existente.anterior.qtdShopee += passado.qtdShopee;
@@ -2437,14 +2910,47 @@ export default function Financeiro() {
       existente.anterior.totalPacotes += passado.totalPacotes;
       existente.anterior.totalReceita += passado.totalReceber;
       existente.anterior.totalRepasse += passado.totalRepasse;
+       existente.anterior.repasseML += passado.totalRepasseML;
+       existente.anterior.repasseShopee += passado.totalRepasseShopee;
+       existente.anterior.repasseAvulso += passado.totalRepasseAvulso;
       existente.anterior.lucroBruto += passado.lucro;
 
       mapa.set(chave, existente);
     });
 
-    return Array.from(mapa.values()).sort((a, b) =>
-      a.nome.localeCompare(b.nome, "pt-BR")
-    );
+    return Array.from(mapa.values())
+      .map((transportadora) => {
+        const gastosAtual =
+          calcularGastosTransportadora(
+            transportadora.id,
+            transportadora.nome,
+            inicioRepasse,
+            fimRepasse
+          );
+
+        const gastosAnterior =
+          calcularGastosTransportadora(
+            transportadora.id,
+            transportadora.nome,
+            anterior.inicio,
+            anterior.fim
+          );
+
+        return {
+          ...transportadora,
+          gastosAtual,
+          gastosAnterior,
+          lucroLiquido:
+            transportadora.atual.lucroBruto -
+            gastosAtual,
+          lucroLiquidoAnterior:
+            transportadora.anterior.lucroBruto -
+            gastosAnterior,
+        };
+      })
+      .sort((a, b) =>
+        a.nome.localeCompare(b.nome, "pt-BR")
+      );
   }, [
     empresas,
     coletas,
@@ -2452,6 +2958,7 @@ export default function Financeiro() {
     users,
     configGanhos,
     ganhos,
+    gastos,
     inicioRepasse,
     fimRepasse,
   ]);
@@ -2467,6 +2974,11 @@ export default function Financeiro() {
         normalizar(item.id) ===
         normalizar(transportadoraSelecionadaId)
     ) || null;
+
+
+  const transportadoraParaGasto = transportadoraAtual;
+
+
 
   const empresasDaTransportadora = useMemo(() => {
     if (!transportadoraAtual) return [];
@@ -2487,6 +2999,154 @@ export default function Financeiro() {
           .includes(termo);
       });
   }, [transportadoraAtual, busca]);
+
+  const gastosDaTransportadora = useMemo(() => {
+    if (!transportadoraAtual) return [];
+
+    return gastos
+      .filter((gasto) =>
+        gastoPertenceTransportadora(
+          gasto,
+          transportadoraAtual.id,
+          transportadoraAtual.nome
+        )
+      )
+      .sort((a, b) =>
+        String(a.nome || "").localeCompare(
+          String(b.nome || ""),
+          "pt-BR"
+        )
+      );
+  }, [gastos, transportadoraAtual]);
+
+  function abrirNovoGasto() {
+    setGastoAberto(null);
+    setFormGasto({
+      nome: "",
+      icone: "💰",
+      cor: GOLD,
+      valor: "",
+      frequencia: "FIXO",
+      empresaId: "TODAS",
+      observacoes: "",
+      ativo: true,
+    });
+    setModalGasto(true);
+  }
+
+  function editarGasto(gasto: Gasto) {
+    setGastoAberto(gasto);
+    setFormGasto({
+      nome: gasto.nome || "",
+      icone: gasto.icone || "💰",
+      cor: gasto.cor || GOLD,
+      valor: String(gasto.valor ?? ""),
+      frequencia: gasto.frequencia || "FIXO",
+      empresaId: gasto.empresaId || "TODAS",
+      observacoes: gasto.observacoes || "",
+      ativo: gasto.ativo !== false,
+    });
+    setModalGasto(true);
+  }
+
+  async function salvarGasto() {
+    if (!transportadoraParaGasto) return;
+
+    const nome = formGasto.nome.trim();
+    const valor = n(formGasto.valor);
+
+    if (!nome) {
+      alert("Informe o nome do gasto.");
+      return;
+    }
+
+    if (valor <= 0) {
+      alert("Informe um valor maior que zero.");
+      return;
+    }
+
+    setSalvandoGasto(true);
+
+    try {
+      const empresaSelecionadaGasto =
+        transportadoraParaGasto.empresas
+          .map((item: AnyDoc) => item.empresa || item)
+          .find(
+            (empresa: AnyDoc) =>
+              empresa.id === formGasto.empresaId
+          );
+
+      const dados = {
+        nome,
+        icone: formGasto.icone.trim() || "💰",
+        cor: formGasto.cor || GOLD,
+        valor,
+        frequencia: formGasto.frequencia,
+        // Estes dois campos garantem que o gasto fique separado
+        // mesmo quando duas transportadoras possuem empresas com
+        // nomes parecidos.
+        transportadoraId: transportadoraParaGasto.id,
+        transportadoraNome: transportadoraParaGasto.nome,
+        empresaId:
+          formGasto.empresaId === "TODAS"
+            ? "TODAS"
+            : formGasto.empresaId,
+        empresaNome:
+          formGasto.empresaId === "TODAS"
+            ? "Todas as empresas"
+            : empresaSelecionadaGasto?.nome ||
+              empresaSelecionadaGasto?.razaoSocial ||
+              formGasto.empresaId,
+        observacoes: formGasto.observacoes.trim(),
+        ativo: formGasto.ativo,
+        atualizadoEm: serverTimestamp(),
+        atualizadoPor: auth.currentUser?.uid || "",
+      };
+
+      if (gastoAberto) {
+        await updateDoc(
+          doc(db, "gastos_financeiros", gastoAberto.id),
+          dados
+        );
+      } else {
+        await addDoc(
+          collection(db, "gastos_financeiros"),
+          {
+            ...dados,
+            criadoEm: serverTimestamp(),
+            criadoPor: auth.currentUser?.uid || "",
+          }
+        );
+      }
+
+      setModalGasto(false);
+      setGastoAberto(null);
+      await load();
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível salvar o gasto.");
+    } finally {
+      setSalvandoGasto(false);
+    }
+  }
+
+  async function removerGasto(gasto: Gasto) {
+    const confirmar = window.confirm(
+      `Excluir o gasto "${gasto.nome}"?`
+    );
+
+    if (!confirmar) return;
+
+    try {
+      await deleteDoc(
+        doc(db, "gastos_financeiros", gasto.id)
+      );
+      await load();
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível excluir o gasto.");
+    }
+  }
 
   const historicoEmpresa =
     useMemo(() => {
@@ -3118,9 +3778,13 @@ export default function Financeiro() {
   return (
     <div
       style={{
+        width: "100%",
         maxWidth: 1440,
+        minWidth: 0,
+        flex: "1 1 auto",
         margin: "0 auto",
         paddingBottom: 32,
+        boxSizing: "border-box",
       }}
     >
       <PageHeader
@@ -3153,7 +3817,10 @@ export default function Financeiro() {
           borderRadius: 14,
           background: "#f8fafc",
           border: "1px solid #edf1f5",
-          width: "fit-content",
+          width: "100%",
+          maxWidth: "100%",
+          minWidth: 0,
+          boxSizing: "border-box",
         }}
       >
         <AbaBotao
@@ -3166,6 +3833,7 @@ export default function Financeiro() {
             setAba("REPASSES");
             setBusca("");
             setEmpresaSelecionada(null);
+            setModoPeriodo("QUINZENA");
           }}
         />
 
@@ -3184,6 +3852,7 @@ export default function Financeiro() {
                 setBusca("");
                 setEmpresaSelecionada(null);
                 setModoEmpresa("LISTA");
+                setModoPeriodo("LIVRE");
               }}
             />
           );
@@ -3211,7 +3880,7 @@ export default function Financeiro() {
                   padding: 16,
                   display: "grid",
                   gridTemplateColumns:
-                    "repeat(auto-fit,minmax(180px,1fr))",
+                    "repeat(auto-fit,minmax(min(180px,100%),1fr))",
                   gap: 12,
                 }}
               >
@@ -3361,7 +4030,7 @@ export default function Financeiro() {
                 className="stat-card"
                 style={{
                   flex: 1,
-                  minWidth: 170,
+                  minWidth: 0,
                 }}
               >
                 <div className="stat-icon">
@@ -3381,7 +4050,7 @@ export default function Financeiro() {
                 className="stat-card"
                 style={{
                   flex: 1,
-                  minWidth: 170,
+                  minWidth: 0,
                 }}
               >
                 <div className="stat-icon blue">
@@ -3403,7 +4072,7 @@ export default function Financeiro() {
                 className="stat-card"
                 style={{
                   flex: 1,
-                  minWidth: 170,
+                  minWidth: 0,
                 }}
               >
                 <div className="stat-icon green">
@@ -3425,7 +4094,7 @@ export default function Financeiro() {
                 className="stat-card"
                 style={{
                   flex: 1,
-                  minWidth: 170,
+                  minWidth: 0,
                 }}
               >
                 <div className="stat-icon orange">
@@ -3580,7 +4249,10 @@ export default function Financeiro() {
                 <div
                   className="search"
                   style={{
-                    minWidth: 260,
+                    flex: "1 1 260px",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
                   }}
                 >
                   <Search size={17} />
@@ -3602,7 +4274,7 @@ export default function Financeiro() {
                   padding: 16,
                   display: "grid",
                   gridTemplateColumns:
-                    "repeat(auto-fit, minmax(280px, 1fr))",
+                    "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
                   gap: 14,
                 }}
               >
@@ -3718,7 +4390,7 @@ export default function Financeiro() {
                         style={{
                           display: "grid",
                           gridTemplateColumns:
-                            "repeat(4, minmax(0, 1fr))",
+                            "repeat(auto-fit,minmax(min(100%,90px),1fr))",
                           gap: 8,
                           marginBottom: 16,
                         }}
@@ -3795,6 +4467,69 @@ export default function Financeiro() {
         aba.startsWith("TRANSPORTADORA:") &&
         !empresaSelecionada && (
           <>
+            <section
+              className="card"
+              style={{
+                padding: 16,
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  display: "block",
+                  marginBottom: 12,
+                }}
+              >
+                <small
+                  style={{
+                    color: "#64748b",
+                    fontWeight: 800,
+                  }}
+                >
+                  FILTRO POR DATAS
+                </small>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit,minmax(min(100%,160px),1fr))",
+                  gap: 10,
+                }}
+              >
+                <label>
+                  <small>DATA INICIAL</small>
+                  <input
+                    type="date"
+                    value={dataInicioLivre}
+                    onChange={(event) =>
+                      setDataInicioLivre(event.target.value)
+                    }
+                    style={{
+                      width: "100%",
+                      marginTop: 5,
+                    }}
+                  />
+                </label>
+                <label>
+                  <small>DATA FINAL</small>
+                  <input
+                    type="date"
+                    value={dataFimLivre}
+                    min={dataInicioLivre}
+                    onChange={(event) =>
+                      setDataFimLivre(event.target.value)
+                    }
+                    style={{
+                      width: "100%",
+                      marginTop: 5,
+                    }}
+                  />
+                </label>
+              </div>
+            </section>
+
             {transportadoraAtual && (
               <section
                 className="card"
@@ -3834,7 +4569,7 @@ export default function Financeiro() {
                       }}
                     >
                       Resumo de todas as empresas •{" "}
-                      {labelQuinzena(quinzena)} •{" "}
+                      {periodoSelecionadoTexto} •{" "}
                       {inicioRepasse.toLocaleDateString("pt-BR")} até{" "}
                       {fimRepasse.toLocaleDateString("pt-BR")}
                     </small>
@@ -3853,13 +4588,14 @@ export default function Financeiro() {
                   >
                     {transportadoraAtual.empresas.length} empresa(s)
                   </span>
+
                 </div>
 
                 <div
                   style={{
                     display: "grid",
                     gridTemplateColumns:
-                      "repeat(auto-fit,minmax(155px,1fr))",
+                      "repeat(auto-fit,minmax(min(155px,100%),1fr))",
                     gap: 10,
                   }}
                 >
@@ -3902,7 +4638,7 @@ export default function Financeiro() {
                 </div>
 
                 <TituloSecao>
-                  COMPARAÇÃO COM A ÚLTIMA QUINZENA
+                  COMPARAÇÃO COM O PERÍODO ANTERIOR
                 </TituloSecao>
 
                 <Comparativo
@@ -3942,6 +4678,19 @@ export default function Financeiro() {
                   )}
                   anteriorTexto={br(
                     transportadoraAtual.anterior.lucroBruto
+                  )}
+                />
+                <Comparativo
+                  label="Gastos"
+                  atual={transportadoraAtual.gastosAtual || 0}
+                  anterior={
+                    transportadoraAtual.gastosAnterior || 0
+                  }
+                  atualTexto={br(
+                    transportadoraAtual.gastosAtual || 0
+                  )}
+                  anteriorTexto={br(
+                    transportadoraAtual.gastosAnterior || 0
                   )}
                 />
                 <Comparativo
@@ -3986,6 +4735,261 @@ export default function Financeiro() {
               </section>
             )}
 
+            {false && transportadoraAtual && (
+              <section
+                className="card"
+                style={{
+                  padding: 18,
+                  marginBottom: 16,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: 0 }}>
+                      Gastos da transportadora
+                    </h3>
+                    <small style={{ color: "#64748b" }}>
+                      Salvos somente para{" "}
+                      {transportadoraAtual.nome} •{" "}
+                      {periodoSelecionadoTexto} •{" "}
+                      {br(transportadoraAtual.gastosAtual || 0)} no período
+                    </small>
+                  </div>
+
+                  <button
+                    className="primary"
+                    type="button"
+                    onClick={abrirNovoGasto}
+                  >
+                    <Plus size={17} />
+                    Cadastrar gasto
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "10px 13px",
+                      borderRadius: 9,
+                      background: "#fef2f2",
+                      color: "#b91c1c",
+                      fontWeight: 900,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Total: {br(transportadoraAtual.gastosAtual || 0)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(min(260px,100%),1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {gastosDaTransportadora.map((gasto) => (
+                    <div
+                      key={gasto.id}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 12,
+                        padding: 14,
+                        background:
+                          gasto.ativo === false
+                            ? "#f8fafc"
+                            : "#fff",
+                        opacity:
+                          gasto.ativo === false ? 0.65 : 1,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 9,
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 38,
+                              height: 38,
+                              display: "grid",
+                              placeItems: "center",
+                              borderRadius: 10,
+                              background: `${gasto.cor || GOLD}20`,
+                              fontSize: 22,
+                            }}
+                          >
+                            {gasto.icone || "💰"}
+                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <strong
+                              style={{
+                                display: "block",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {gasto.nome}
+                            </strong>
+                            <small
+                              style={{
+                                color: "#64748b",
+                                display: "block",
+                                marginTop: 3,
+                              }}
+                            >
+                              {gasto.empresaNome ||
+                                "Todas as empresas"}
+                            </small>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 4,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            title="Editar gasto"
+                            onClick={() => editarGasto(gasto)}
+                            style={{
+                              border: 0,
+                              background: "transparent",
+                              color: "#64748b",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Excluir gasto"
+                            onClick={() => removerGasto(gasto)}
+                            style={{
+                              border: 0,
+                              background: "transparent",
+                              color: "#dc2626",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-end",
+                          gap: 10,
+                          borderTop: "1px solid #e5e7eb",
+                          marginTop: 13,
+                          paddingTop: 12,
+                        }}
+                      >
+                        <div>
+                          <small
+                            style={{
+                              display: "block",
+                              color: "#64748b",
+                            }}
+                          >
+                            {frequencias.find(
+                              (item) =>
+                                item.value === gasto.frequencia
+                            )?.label || "Valor fixo no período"}
+                          </small>
+                          <strong
+                            style={{
+                              display: "block",
+                              marginTop: 4,
+                              color: gasto.cor || GOLD,
+                              fontSize: 17,
+                            }}
+                          >
+                            {br(n(gasto.valor))}
+                          </strong>
+                        </div>
+
+                        <strong
+                          style={{
+                            color: "#17202d",
+                            fontSize: 14,
+                            textAlign: "right",
+                          }}
+                        >
+                          {br(
+                            gastoNoPeriodo(
+                              gasto,
+                              inicioRepasse,
+                              fimRepasse
+                            )
+                          )}
+                          <small
+                            style={{
+                              display: "block",
+                              color: "#64748b",
+                              fontSize: 10,
+                              fontWeight: 400,
+                            }}
+                          >
+                            neste período
+                          </small>
+                        </strong>
+                      </div>
+                    </div>
+                  ))}
+
+                  {!gastosDaTransportadora.length && (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        border: "1px dashed #cbd5e1",
+                        borderRadius: 10,
+                        padding: 30,
+                        textAlign: "center",
+                        color: "#64748b",
+                      }}
+                    >
+                      Nenhum gasto cadastrado para esta transportadora.
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             <section className="card">
               <div
                 style={{
@@ -4023,7 +5027,10 @@ export default function Financeiro() {
                 <div
                   className="search"
                   style={{
-                    minWidth: 260,
+                    flex: "1 1 260px",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
                   }}
                 >
                   <Search size={17} />
@@ -4045,7 +5052,7 @@ export default function Financeiro() {
                   padding: 16,
                   display: "grid",
                   gridTemplateColumns:
-                    "repeat(auto-fit,minmax(290px,1fr))",
+                      "repeat(auto-fit,minmax(min(290px,100%),1fr))",
                   gap: 14,
                 }}
               >
@@ -4141,7 +5148,7 @@ export default function Financeiro() {
                           display:
                             "grid",
                           gridTemplateColumns:
-                            "repeat(3,1fr)",
+                            "repeat(auto-fit,minmax(min(100%,100px),1fr))",
                           borderTop:
                             "1px solid #e5e7eb",
                         }}
@@ -4282,7 +5289,7 @@ export default function Financeiro() {
               <div
                 style={{
                   flex: 1,
-                  minWidth: 220,
+                   minWidth: 0,
                 }}
               >
                 <h2
@@ -4377,7 +5384,8 @@ export default function Financeiro() {
 
                 <div style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(0,1.6fr) minmax(220px,1fr)",
+                   gridTemplateColumns:
+                     "repeat(auto-fit,minmax(min(220px,100%),1fr))",
                   gap: 16,
                   marginBottom: 24,
                 }}>
@@ -4427,7 +5435,8 @@ export default function Financeiro() {
                   </h4>
                   <div style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(min(180px,100%),1fr))",
                     gap: 14,
                   }}>
                     <label>
@@ -4451,7 +5460,8 @@ export default function Financeiro() {
                   </div>
                   <div style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(min(170px,100%),1fr))",
                     gap: 10,
                     marginTop: 14,
                   }}>
@@ -4473,7 +5483,8 @@ export default function Financeiro() {
                     borderRadius: 12,
                     padding: 12,
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))",
+                     gridTemplateColumns:
+                       "repeat(auto-fit,minmax(min(230px,100%),1fr))",
                     gap: 10,
                     maxHeight: 300,
                     overflowY: "auto",
@@ -4521,7 +5532,8 @@ export default function Financeiro() {
                   </h4>
                   <div style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+                     gridTemplateColumns:
+                       "repeat(auto-fit,minmax(min(220px,100%),1fr))",
                     gap: 14,
                   }}>
                     <label>
@@ -4634,7 +5646,7 @@ export default function Financeiro() {
                       style={{
                         display: "grid",
                         gridTemplateColumns:
-                          "repeat(auto-fit,minmax(220px,1fr))",
+                          "repeat(auto-fit,minmax(min(220px,100%),1fr))",
                         gap: 12,
                       }}
                     >
@@ -4696,7 +5708,7 @@ export default function Financeiro() {
                     style={{
                       display: "grid",
                       gridTemplateColumns:
-                        "repeat(auto-fit,minmax(190px,1fr))",
+                        "repeat(auto-fit,minmax(min(190px,100%),1fr))",
                       gap: 12,
                     }}
                   >
@@ -5230,6 +6242,333 @@ export default function Financeiro() {
           </>
         )}
 
+
+      {modalGasto && transportadoraParaGasto && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(15,23,42,.5)",
+            padding: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => setModalGasto(false)}
+        >
+          <div
+            className="card"
+            style={{
+              width: "100%",
+              maxWidth: 620,
+              maxHeight: "92vh",
+              overflowY: "auto",
+              padding: 22,
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                marginBottom: 20,
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0 }}>
+                  {gastoAberto ? "Editar gasto" : "Novo gasto"}
+                </h2>
+                <small style={{ color: "#64748b" }}>
+                  {transportadoraParaGasto.nome}
+                </small>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalGasto(false)}
+                style={{
+                  border: 0,
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <X />
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,180px),1fr))",
+                gap: 12,
+              }}
+            >
+              <label>
+                <span className="field-label">NOME DO GASTO</span>
+                <input
+                  value={formGasto.nome}
+                  onChange={(event) =>
+                    setFormGasto((old) => ({
+                      ...old,
+                      nome: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex.: Gasolina"
+                  style={campoStyle}
+                />
+              </label>
+
+              <label>
+                <span className="field-label">ÍCONE</span>
+                <input
+                  value={formGasto.icone}
+                  readOnly
+                  placeholder="⛽"
+                  style={{
+                    ...campoStyle,
+                    fontSize: 22,
+                    textAlign: "center",
+                  }}
+                />
+              </label>
+
+              <label>
+                <span className="field-label">COR</span>
+                <input
+                  type="color"
+                  value={formGasto.cor}
+                  onChange={(event) =>
+                    setFormGasto((old) => ({
+                      ...old,
+                      cor: event.target.value,
+                    }))
+                  }
+                  style={{
+                    ...campoStyle,
+                    height: 44,
+                    padding: 4,
+                  }}
+                />
+              </label>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(220px,100%),1fr))",
+                gap: 12,
+                marginTop: 14,
+              }}
+            >
+              <label>
+                <span className="field-label">VALOR</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formGasto.valor}
+                  onChange={(event) =>
+                    setFormGasto((old) => ({
+                      ...old,
+                      valor: event.target.value,
+                    }))
+                  }
+                  placeholder="100,00"
+                  style={campoStyle}
+                />
+              </label>
+
+              <label>
+                <span className="field-label">FREQUÊNCIA</span>
+                <select
+                  value={formGasto.frequencia}
+                  onChange={(event) =>
+                    setFormGasto((old) => ({
+                      ...old,
+                      frequencia:
+                        event.target.value as Frequencia,
+                    }))
+                  }
+                  style={campoStyle}
+                >
+                  {frequencias.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <span className="field-label">
+                ESCOLHA O ÍCONE
+              </span>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit,minmax(46px,1fr))",
+                  gap: 6,
+                  marginTop: 8,
+                  padding: 10,
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 10,
+                  maxHeight: 170,
+                  overflowY: "auto",
+                  background: "#f8fafc",
+                }}
+              >
+                {iconesGasto.map((icone) => (
+                  <button
+                    key={icone}
+                    type="button"
+                    title={`Usar ícone ${icone}`}
+                    onClick={() =>
+                      setFormGasto((old) => ({
+                        ...old,
+                        icone,
+                      }))
+                    }
+                    style={{
+                      height: 42,
+                      border:
+                        formGasto.icone === icone
+                          ? `2px solid ${GOLD}`
+                          : "1px solid #e5e7eb",
+                      borderRadius: 8,
+                      background:
+                        formGasto.icone === icone
+                          ? "#fffbeb"
+                          : "#fff",
+                      cursor: "pointer",
+                      fontSize: 22,
+                    }}
+                  >
+                    {icone}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label
+              style={{
+                display: "block",
+                marginTop: 14,
+              }}
+            >
+              <span className="field-label">EMPRESA</span>
+              <select
+                value={formGasto.empresaId}
+                onChange={(event) =>
+                  setFormGasto((old) => ({
+                    ...old,
+                    empresaId: event.target.value,
+                  }))
+                }
+                style={campoStyle}
+              >
+                <option value="TODAS">
+                  Todas as empresas da transportadora
+                </option>
+                {transportadoraAtual.empresas.map((item: AnyDoc) => {
+                  const empresa = item.empresa || item;
+
+                  return (
+                    <option key={empresa.id} value={empresa.id}>
+                      {empresa.nome ||
+                        empresa.razaoSocial ||
+                        empresa.id}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label
+              style={{
+                display: "block",
+                marginTop: 14,
+              }}
+            >
+              <span className="field-label">OBSERVAÇÕES</span>
+              <textarea
+                value={formGasto.observacoes}
+                onChange={(event) =>
+                  setFormGasto((old) => ({
+                    ...old,
+                    observacoes: event.target.value,
+                  }))
+                }
+                placeholder="Detalhes opcionais..."
+                style={{
+                  ...campoStyle,
+                  minHeight: 80,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+              />
+            </label>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 14,
+                color: formGasto.ativo ? "#15803d" : "#dc2626",
+                fontWeight: 800,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={formGasto.ativo}
+                onChange={(event) =>
+                  setFormGasto((old) => ({
+                    ...old,
+                    ativo: event.target.checked,
+                  }))
+                }
+              />
+              Gasto ativo
+            </label>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 10,
+                borderTop: "1px solid #e5e7eb",
+                marginTop: 22,
+                paddingTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setModalGasto(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={salvarGasto}
+                disabled={salvandoGasto}
+              >
+                <Save size={16} />
+                {salvandoGasto ? "Salvando..." : "Salvar gasto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {repasseAberto && (
         <div
           style={{
@@ -5509,7 +6848,7 @@ export default function Financeiro() {
                         display:
                           "grid",
                         gridTemplateColumns:
-                          "repeat(3,1fr)",
+                          "repeat(auto-fit,minmax(min(100%,90px),1fr))",
                         gap: 8,
                         marginTop: 12,
                       }}

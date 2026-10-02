@@ -12,6 +12,7 @@ import Login from '../pages/Login';
 import Dashboard from '../pages/Dashboard';
 import Operacao from '../pages/Operacao';
 import Empresas from '../pages/Empresas';
+import FinanceiroGeral from "../pages/FinanceiroGeral";
 
 export default function AppRoutes() {
   return (
@@ -95,6 +96,9 @@ export default function AppRoutes() {
         path="*"
         element={<Navigate to="/" replace />}
       />
+
+      <Route path="/financeiro-geral" element={<FinanceiroGeral />} />
+
 
     </Routes>
   );

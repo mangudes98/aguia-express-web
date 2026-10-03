@@ -12,10 +12,9 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 
 import PageHeader from "../components/ui/PageHeader";
-import StatusBadge from "../components/ui/StatusBadge";
 import { listarPacotes, nomeTipo, timestampMs } from "../services/pacotes";
 import { Pacote, StatusPacote } from "../types";
 import { auth, db } from "../services/firebase/firebase";
@@ -109,6 +108,228 @@ function isShopeeSla(pacote: any) {
   return textoEmpresaSla(pacote).includes("SHOPEE");
 }
 
+function normalizarFinanceiro(valor: any) {
+  return String(valor ?? "").trim().toLowerCase();
+}
+
+function dataFinanceiro(valor: any): Date | null {
+  if (!valor) return null;
+
+  if (valor instanceof Date) {
+    return Number.isNaN(valor.getTime()) ? null : valor;
+  }
+
+  if (typeof valor?.toDate === "function") {
+    const d = valor.toDate();
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  if (typeof valor?.seconds === "number") {
+    const d = new Date(
+      valor.seconds * 1000 +
+        Math.floor((valor.nanoseconds || 0) / 1000000)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function statusPacoteFinanceiro(pacote: any) {
+  return String(
+    pacote.status ||
+      pacote.situacao ||
+      pacote.statusEntrega ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+}
+
+function dataPacoteEmpresaFinanceiro(pacote: any): Date | null {
+  const historico = Array.isArray(pacote.historico)
+    ? pacote.historico
+    : [];
+
+  // Mesma regra do Financeiro: a primeira entrada COLETADO é a data real.
+  const coletaHistorico = historico.find(
+    (item: any) =>
+      String(item?.status || "").trim().toUpperCase() === "COLETADO"
+  );
+
+  if (coletaHistorico) {
+    return dataFinanceiro(
+      coletaHistorico.dataHora ||
+        coletaHistorico.data ||
+        coletaHistorico.timestamp
+    );
+  }
+
+  // Compatibilidade do Financeiro para registros antigos sem histórico.
+  if (statusPacoteFinanceiro(pacote) === "COLETADO") {
+    return dataFinanceiro(pacote.data);
+  }
+
+  return null;
+}
+
+function dentroPeriodoFinanceiro(
+  valor: Date | null,
+  inicio: Date,
+  fim: Date
+) {
+  if (!valor) return false;
+
+  const tempo = valor.getTime();
+  return tempo >= inicio.getTime() && tempo <= fim.getTime();
+}
+
+function pacotePertenceEmpresaFinanceiro(
+  pacote: any,
+  empresa: any
+) {
+  const valoresPacote = [
+    pacote.empresaId,
+    pacote.empresa,
+    pacote.pasta,
+    pacote.coletaId,
+    pacote.coleta,
+  ]
+    .filter(Boolean)
+    .map(normalizarFinanceiro);
+
+  const valoresEmpresa = [
+    empresa.id,
+    empresa.nome,
+    empresa.razaoSocial,
+  ]
+    .filter(Boolean)
+    .map(normalizarFinanceiro);
+
+  if (valoresPacote.some((valor: string) => valoresEmpresa.includes(valor))) {
+    return true;
+  }
+
+  const pastasEmpresa = Array.isArray(empresa.pastas)
+    ? empresa.pastas.filter(Boolean).map(normalizarFinanceiro)
+    : [];
+
+  return Boolean(
+    pastasEmpresa.length &&
+      valoresPacote.some((valor: string) => pastasEmpresa.includes(valor))
+  );
+}
+
+function empresaDaColetaFinanceiro(pacote: any, coletas: any[]) {
+  const chave = String(
+    pacote.empresaId ||
+      pacote.empresa ||
+      pacote.pasta ||
+      pacote.coletaId ||
+      pacote.coleta ||
+      ""
+  );
+
+  const coleta = coletas.find(
+    item =>
+      normalizarFinanceiro(item.id) === normalizarFinanceiro(chave) ||
+      normalizarFinanceiro(item.nome) === normalizarFinanceiro(chave)
+  );
+
+  const transportadora = pacote.transportadora || coleta?.transportadora;
+  const transportadoraObjeto =
+    transportadora && typeof transportadora === "object"
+      ? transportadora
+      : null;
+
+  return {
+    transportadoraId: String(
+      pacote.transportadoraId ||
+        coleta?.transportadoraId ||
+        transportadoraObjeto?.id ||
+        (typeof transportadora === "string" ? transportadora : "") ||
+        "sem_transportadora"
+    ),
+    transportadoraNome: String(
+      pacote.transportadoraNome ||
+        coleta?.transportadoraNome ||
+        transportadoraObjeto?.nome ||
+        (typeof transportadora === "string" ? transportadora : "") ||
+        "Sem Transportadora"
+    ),
+  };
+}
+
+function transportadoraDaEmpresaFinanceiro(
+  empresa: any,
+  coletas: any[],
+  pacotes: any[]
+) {
+  const pastas = Array.isArray(empresa.pastas)
+    ? empresa.pastas.map(normalizarFinanceiro)
+    : [];
+
+  const coletasEmpresa = coletas.filter(coleta => {
+    const ids = [
+      coleta.id,
+      coleta.nome,
+      coleta.pasta,
+      coleta.pastaId,
+    ]
+      .filter(Boolean)
+      .map(normalizarFinanceiro);
+
+    return ids.some((id: string) => pastas.includes(id));
+  });
+
+  const pacoteEmpresa = pacotes.find(pacote =>
+    pacotePertenceEmpresaFinanceiro(pacote, empresa)
+  );
+
+  const fontes = [
+    empresa,
+    ...coletasEmpresa,
+    ...(pacoteEmpresa
+      ? [empresaDaColetaFinanceiro(pacoteEmpresa, coletas)]
+      : []),
+  ];
+
+  for (const fonte of fontes) {
+    const transportadora = fonte?.transportadora;
+    const transportadoraObjeto =
+      transportadora && typeof transportadora === "object"
+        ? transportadora
+        : null;
+
+    const id = String(
+      fonte?.transportadoraId ||
+        transportadoraObjeto?.id ||
+        (typeof transportadora === "string" ? transportadora : "") ||
+        ""
+    ).trim();
+
+    const nome = String(
+      fonte?.transportadoraNome ||
+        transportadoraObjeto?.nome ||
+        (typeof transportadora === "string" ? transportadora : "") ||
+        ""
+    ).trim();
+
+    if (id || nome) {
+      return {
+        id: id || nome,
+        nome: nome || id,
+      };
+    }
+  }
+
+  return {
+    id: "sem_transportadora",
+    nome: "Sem Transportadora",
+  };
+}
+
 // CIRCULO DE PORCENTAGEM DO SLA
 function CirculoPercentualSla({
   percentual,
@@ -192,6 +413,8 @@ export default function Dashboard() {
   const yesterday = getYesterday();
 
   const [all, setAll] = useState<Pacote[]>([]);
+  const [empresas, setEmpresas] = useState<any[]>([]);
+  const [coletas, setColetas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
 
@@ -252,9 +475,25 @@ setAllowed(
     setLoading(true);
 
     try {
-      const dados = await listarPacotes();
+      const [dados, empresasSnap, coletasSnap] = await Promise.all([
+        listarPacotes(),
+        getDocs(collection(db, "empresas")).catch(() => null),
+        getDocs(collection(db, "coletas")).catch(() => null),
+      ]);
 
       setAll(dados);
+      setEmpresas(
+        empresasSnap?.docs.map(item => ({
+          id: item.id,
+          ...item.data(),
+        })) || []
+      );
+      setColetas(
+        coletasSnap?.docs.map(item => ({
+          id: item.id,
+          ...item.data(),
+        })) || []
+      );
       setErro("");
     } catch (e) {
       console.error(e);
@@ -282,6 +521,72 @@ setAllowed(
       return dataPacote >= inicio && dataPacote <= final;
     });
   }, [all, ini, fim]);
+
+  const coletadosPorTransportadora = useMemo(() => {
+    const inicio = new Date(`${ini}T00:00:00`);
+    const final = new Date(`${fim}T23:59:59.999`);
+    const porTransportadora = new Map<
+      string,
+      {
+        id: string;
+        nome: string;
+        empresas: any[];
+        total: number;
+      }
+    >();
+
+    empresas.forEach(empresa => {
+      const transportadora = transportadoraDaEmpresaFinanceiro(
+        empresa,
+        coletas,
+        all
+      );
+      const chave =
+        normalizarFinanceiro(
+          transportadora.id || transportadora.nome
+        ) || "sem_transportadora";
+      const existente = porTransportadora.get(chave) || {
+        id: transportadora.id,
+        nome: transportadora.nome,
+        empresas: [],
+        total: 0,
+      };
+
+      existente.empresas.push(empresa);
+      porTransportadora.set(chave, existente);
+    });
+
+    const codigosContados = new Set<string>();
+
+    all.forEach(pacote => {
+      const dataColeta = dataPacoteEmpresaFinanceiro(pacote);
+      if (!dentroPeriodoFinanceiro(dataColeta, inicio, final)) return;
+
+      const codigo = String(pacote.codigo || pacote.id);
+      if (codigosContados.has(codigo)) return;
+
+      for (const grupo of porTransportadora.values()) {
+        const pertenceAoGrupo = grupo.empresas.some(empresa =>
+          pacotePertenceEmpresaFinanceiro(pacote, empresa)
+        );
+
+        if (!pertenceAoGrupo) continue;
+
+        grupo.total++;
+        codigosContados.add(codigo);
+        break;
+      }
+    });
+
+    return Array.from(porTransportadora.values())
+      .filter(item => item.total > 0)
+      .map(({ nome, total }) => ({ transportadora: nome, total }))
+      .sort(
+        (a, b) =>
+          b.total - a.total ||
+          a.transportadora.localeCompare(b.transportadora, "pt-BR")
+      );
+  }, [all, empresas, coletas, ini, fim]);
 
   const count = (status: StatusPacote) =>
     pacotes.filter(p => p.status === status).length;
@@ -354,13 +659,6 @@ setAllowed(
       shopee: comPercentual(shopee),
     };
   }, [pacotes]);
-
-  const ult = [...pacotes]
-    .sort(
-      (a, b) =>
-        timestampMs(b.data) - timestampMs(a.data)
-    )
-    .slice(0, 12);
 
   // CARREGANDO PERMISSÃO
   if (checkingAccess) {
@@ -730,81 +1028,52 @@ setAllowed(
               </b>
             </div>
           ))}
-        </section>
-      </div>
 
-      {/* ÚLTIMOS REGISTROS */}
-      <section className="card">
-        <div className="card-title">
-          <div>
-            <h3>Últimos registros</h3>
+          <div
+            style={{
+              borderTop: "1px solid #eef1f5",
+              margin: "16px 0 14px",
+            }}
+          />
 
-            <p>
-              {ini} até {fim}
+          <div style={{ marginBottom: "8px" }}>
+            <b style={{ fontSize: "13px" }}>
+              Coletados por transportadora
+            </b>
+            <p
+              style={{
+                margin: "4px 0 0",
+                fontSize: "12px",
+                color: "#667085",
+              }}
+            >
+              Data real da coleta · {ini} até {fim}
             </p>
           </div>
-        </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Empresa</th>
-                <th>Tipo</th>
-                <th>Responsável</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {ult.length > 0 ? (
-                ult.map(p => (
-                  <tr key={p.id}>
-                    <td>
-                      <b>{p.codigo}</b>
-                    </td>
-
-                    <td>
-                      {p.empresa || "—"}
-                    </td>
-
-                    <td>
-                      {nomeTipo(p.tipo)}
-                    </td>
-
-                    <td>
-                      {p.usuarioNome?.trim() ||
-                        p.usuarioFinalizacao ||
-                        p.usuario ||
-                        "—"}
-                    </td>
-
-                    <td>
-                      <StatusBadge
-                        status={p.status}
-                      />
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={5}
-                    style={{
-                      textAlign: "center",
-                      padding: "30px",
-                      color: "#667085",
-                    }}
-                  >
-                    Nenhum registro encontrado no período.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          {coletadosPorTransportadora.length > 0 ? (
+            coletadosPorTransportadora.map(({ transportadora, total }) => (
+              <div
+                className="simple-row"
+                key={transportadora}
+              >
+                <span>{transportadora}</span>
+                <b>{total}</b>
+              </div>
+            ))
+          ) : (
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#667085",
+                fontSize: "13px",
+              }}
+            >
+              Nenhum pacote coletado no período.
+            </p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

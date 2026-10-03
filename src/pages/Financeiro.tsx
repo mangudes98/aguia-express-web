@@ -1169,6 +1169,124 @@ function Comparativo({
   );
 }
 
+type DiaColeta = { chave: string; data: Date; qtd: number };
+
+function chaveDia(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function resumoColetas(dias: DiaColeta[]) {
+  const total = dias.reduce((s, d) => s + d.qtd, 0);
+  const diasComColeta = dias.filter((d) => d.qtd > 0).length;
+  const media = diasComColeta > 0 ? total / diasComColeta : 0;
+  return { total, diasComColeta, media };
+}
+
+function GraficoColetasDiarias({ dias }: { dias: DiaColeta[] }) {
+  const max = Math.max(1, ...dias.map((d) => d.qtd));
+  return (
+    <div style={{ overflowX: "auto", paddingBottom: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 4,
+          height: 200,
+          minWidth: dias.length * 26,
+          borderBottom: "1px solid #e5e7eb",
+          padding: "18px 2px 0",
+        }}
+      >
+        {dias.map((d) => (
+          <div
+            key={d.chave}
+            title={`${d.data.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}: ${d.qtd} pacote(s)`}
+            style={{ flex: 1, minWidth: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", cursor: "default" }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 800, color: "#475569", marginBottom: 3 }}>
+              {d.qtd}
+            </span>
+            <div
+              style={{
+                width: "100%",
+                height: `${(d.qtd / max) * 100}%`,
+                minHeight: d.qtd > 0 ? 3 : 1,
+                background: d.qtd > 0 ? GOLD : "#e5e7eb",
+                borderRadius: "5px 5px 0 0",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 4, minWidth: dias.length * 26, padding: "4px 2px 0" }}>
+        {dias.map((d) => (
+          <span key={d.chave} style={{ flex: 1, minWidth: 20, textAlign: "center", fontSize: 10, color: "#94a3b8" }}>
+            {String(d.data.getDate()).padStart(2, "0")}/{String(d.data.getMonth() + 1).padStart(2, "0")}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ComparativoColunas({
+  label,
+  atual,
+  anterior,
+  formatar,
+}: {
+  label: string;
+  atual: number;
+  anterior: number;
+  formatar: (v: number) => string;
+}) {
+  const max = Math.max(Math.abs(atual), Math.abs(anterior), 1);
+  const diferenca = atual - anterior;
+  const percentual =
+    anterior === 0 ? (atual === 0 ? 0 : 100) : (diferenca / Math.abs(anterior)) * 100;
+  const positivo = percentual >= 0;
+  const coluna = (valor: number, cor: string, titulo: string) => (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+      <span style={{ fontSize: 11, fontWeight: 800, color: "#17202d", marginBottom: 4, textAlign: "center", wordBreak: "break-word" }}>
+        {formatar(valor)}
+      </span>
+      <div
+        title={`${titulo}: ${formatar(valor)}`}
+        style={{
+          width: "70%",
+          height: `${(Math.abs(valor) / max) * 100}%`,
+          minHeight: 2,
+          background: valor < 0 ? "#dc2626" : cor,
+          borderRadius: "6px 6px 0 0",
+        }}
+      />
+    </div>
+  );
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fff" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <strong style={{ fontSize: 13, color: "#334155" }}>{label}</strong>
+        <span style={{ color: positivo ? "#16a34a" : "#dc2626", fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+          {positivo ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          {percentual.toFixed(1)}%
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 130, borderBottom: "1px solid #e5e7eb" }}>
+        {coluna(atual, GOLD, "Atual")}
+        {coluna(anterior, "#94a3b8", "Anterior")}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 5 }}>
+        <span style={{ flex: 1, textAlign: "center", fontSize: 11, fontWeight: 800, color: "#92400e" }}>ATUAL</span>
+        <span style={{ flex: 1, textAlign: "center", fontSize: 11, fontWeight: 800, color: "#64748b" }}>ANTERIOR</span>
+      </div>
+      <div style={{ marginTop: 6, fontSize: 11, color: "#64748b", textAlign: "center" }}>
+        Diferença: {diferenca >= 0 ? "+" : "-"}{formatar(Math.abs(diferenca))}
+      </div>
+    </div>
+  );
+}
+
+
 export default function Financeiro() {
   const hoje = new Date();
   const periodoInicial =
@@ -2975,6 +3093,53 @@ export default function Financeiro() {
         normalizar(transportadoraSelecionadaId)
     ) || null;
 
+  // VOLUME DE COLETAS DA TRANSPORTADORA (data = 1º COLETADO do histórico)
+  const coletasTransportadora = useMemo(() => {
+    const anteriorPeriodo = periodoAnterior(inicioRepasse, fimRepasse);
+
+    const gerar = (inicio: Date, fim: Date): DiaColeta[] => {
+      const mapaDias = new Map<string, DiaColeta>();
+      const cursor = diaInicio(inicio);
+      const limite = diaInicio(fim).getTime();
+      while (cursor.getTime() <= limite) {
+        const d = new Date(cursor);
+        mapaDias.set(chaveDia(d), { chave: chaveDia(d), data: d, qtd: 0 });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      if (!transportadoraAtual) return Array.from(mapaDias.values());
+
+      const empresasT: AnyDoc[] = transportadoraAtual.empresas.map(
+        (item: AnyDoc) => item.empresa
+      );
+      const codigos = new Set<string>();
+
+      pacotes.forEach((pacote) => {
+        if (!empresasT.some((empresa) => pacotePertenceEmpresa(pacote, empresa))) return;
+        const dataPacote = dataPacoteEmpresa(pacote);
+        if (!dataPacote || !dentroPeriodo(dataPacote, inicio, fim)) return;
+        const codigo = String(pacote.codigo || pacote.id);
+        if (codigos.has(codigo)) return;
+        codigos.add(codigo);
+        const dia = mapaDias.get(chaveDia(dataPacote));
+        if (dia) dia.qtd += 1;
+      });
+
+      return Array.from(mapaDias.values());
+    };
+
+    const diasAtual = gerar(inicioRepasse, fimRepasse);
+    const diasAnterior = gerar(anteriorPeriodo.inicio, anteriorPeriodo.fim);
+
+    return {
+      periodoAnterior: anteriorPeriodo,
+      diasAtual,
+      diasAnterior,
+      atual: resumoColetas(diasAtual),
+      anterior: resumoColetas(diasAnterior),
+    };
+  }, [transportadoraAtual, pacotes, inicioRepasse, fimRepasse]);
+
+
 
   const transportadoraParaGasto = transportadoraAtual;
 
@@ -4638,100 +4803,164 @@ export default function Financeiro() {
                 </div>
 
                 <TituloSecao>
+                  VOLUME DE COLETAS
+                </TituloSecao>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(min(155px,100%),1fr))",
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  <InfoCard
+                    titulo="TOTAL COLETADO NO PERÍODO"
+                    valor={String(coletasTransportadora.atual.total)}
+                  />
+                  <InfoCard
+                    titulo="MÉDIA REAL POR DIA"
+                    valor={coletasTransportadora.atual.media.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                  />
+                  <InfoCard
+                    titulo="DIAS COM COLETA"
+                    valor={`${coletasTransportadora.atual.diasComColeta} de ${coletasTransportadora.diasAtual.length}`}
+                  />
+                </div>
+
+                <small style={{ display: "block", color: "#64748b", marginBottom: 10 }}>
+                  Média real = total coletado ÷ dias com pelo menos 1 pacote coletado.
+                </small>
+
+                <GraficoColetasDiarias dias={coletasTransportadora.diasAtual} />
+
+                <details style={{ marginTop: 12, marginBottom: 6 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 13, color: "#334155" }}>
+                    Detalhamento diário
+                  </summary>
+                  <div style={{ marginTop: 8 }}>
+                    {coletasTransportadora.diasAtual.map((d) => (
+                      <div
+                        key={d.chave}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "7px 0",
+                          borderBottom: "1px solid #f1f5f9",
+                          fontSize: 13,
+                          color: d.qtd > 0 ? "#17202d" : "#94a3b8",
+                        }}
+                      >
+                        <span>
+                          {d.data.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
+                        </span>
+                        <strong>{d.qtd} pacote(s)</strong>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+
+                <TituloSecao>
                   COMPARAÇÃO COM O PERÍODO ANTERIOR
                 </TituloSecao>
 
-                <Comparativo
-                  label="Receita"
-                  atual={transportadoraAtual.atual.totalReceita}
-                  anterior={
-                    transportadoraAtual.anterior.totalReceita
-                  }
-                  atualTexto={br(
-                    transportadoraAtual.atual.totalReceita
-                  )}
-                  anteriorTexto={br(
-                    transportadoraAtual.anterior.totalReceita
-                  )}
-                />
-                <Comparativo
-                  label="Repasse"
-                  atual={transportadoraAtual.atual.totalRepasse}
-                  anterior={
-                    transportadoraAtual.anterior.totalRepasse
-                  }
-                  atualTexto={br(
-                    transportadoraAtual.atual.totalRepasse
-                  )}
-                  anteriorTexto={br(
-                    transportadoraAtual.anterior.totalRepasse
-                  )}
-                />
-                <Comparativo
-                  label="Lucro bruto"
-                  atual={transportadoraAtual.atual.lucroBruto}
-                  anterior={
-                    transportadoraAtual.anterior.lucroBruto
-                  }
-                  atualTexto={br(
-                    transportadoraAtual.atual.lucroBruto
-                  )}
-                  anteriorTexto={br(
-                    transportadoraAtual.anterior.lucroBruto
-                  )}
-                />
-                <Comparativo
-                  label="Gastos"
-                  atual={transportadoraAtual.gastosAtual || 0}
-                  anterior={
-                    transportadoraAtual.gastosAnterior || 0
-                  }
-                  atualTexto={br(
-                    transportadoraAtual.gastosAtual || 0
-                  )}
-                  anteriorTexto={br(
-                    transportadoraAtual.gastosAnterior || 0
-                  )}
-                />
-                <Comparativo
-                  label="Mercado Livre"
-                  atual={transportadoraAtual.atual.qtdML}
-                  anterior={
-                    transportadoraAtual.anterior.qtdML
-                  }
-                  atualTexto={String(
-                    transportadoraAtual.atual.qtdML
-                  )}
-                  anteriorTexto={String(
-                    transportadoraAtual.anterior.qtdML
-                  )}
-                />
-                <Comparativo
-                  label="Shopee"
-                  atual={transportadoraAtual.atual.qtdShopee}
-                  anterior={
-                    transportadoraAtual.anterior.qtdShopee
-                  }
-                  atualTexto={String(
-                    transportadoraAtual.atual.qtdShopee
-                  )}
-                  anteriorTexto={String(
-                    transportadoraAtual.anterior.qtdShopee
-                  )}
-                />
-                <Comparativo
-                  label="Avulso"
-                  atual={transportadoraAtual.atual.qtdAvulso}
-                  anterior={
-                    transportadoraAtual.anterior.qtdAvulso
-                  }
-                  atualTexto={String(
-                    transportadoraAtual.atual.qtdAvulso
-                  )}
-                  anteriorTexto={String(
-                    transportadoraAtual.anterior.qtdAvulso
-                  )}
-                />
+                <div
+                  style={{
+                    background: "#fffbeb",
+                    border: `1px solid ${GOLD}`,
+                    borderRadius: 12,
+                    padding: "12px 14px",
+                    marginBottom: 14,
+                    fontSize: 13,
+                    color: "#17202d",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  <div>
+                    <strong>Período atual:</strong>{" "}
+                    {inicioRepasse.toLocaleDateString("pt-BR")} até{" "}
+                    {fimRepasse.toLocaleDateString("pt-BR")}
+                  </div>
+                  <div>
+                    <strong>Período anterior:</strong>{" "}
+                    {coletasTransportadora.periodoAnterior.inicio.toLocaleDateString("pt-BR")} até{" "}
+                    {coletasTransportadora.periodoAnterior.fim.toLocaleDateString("pt-BR")}
+                  </div>
+                  <div>
+                    <strong>Filtro atual:</strong>{" "}
+                    {modoPeriodo === "LIVRE"
+                      ? `PERÍODO LIVRE — ${inicioRepasse.toLocaleDateString("pt-BR")} até ${fimRepasse.toLocaleDateString("pt-BR")}`
+                      : `QUINZENA — ${labelQuinzena(quinzena)}`}
+                  </div>
+                  <div style={{ color: "#64748b" }}>
+                    <strong>Comparação automática:</strong> período anterior equivalente.
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit,minmax(min(200px,100%),1fr))",
+                    gap: 10,
+                  }}
+                >
+                  <ComparativoColunas
+                    label="Pacotes coletados"
+                    atual={coletasTransportadora.atual.total}
+                    anterior={coletasTransportadora.anterior.total}
+                    formatar={(v) => String(v)}
+                  />
+                  <ComparativoColunas
+                    label="Média de pacotes coletados/dia"
+                    atual={coletasTransportadora.atual.media}
+                    anterior={coletasTransportadora.anterior.media}
+                    formatar={(v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                  />
+                  <ComparativoColunas
+                    label="Receita"
+                    atual={transportadoraAtual.atual.totalReceita}
+                    anterior={transportadoraAtual.anterior.totalReceita}
+                    formatar={br}
+                  />
+                  <ComparativoColunas
+                    label="Repasse"
+                    atual={transportadoraAtual.atual.totalRepasse}
+                    anterior={transportadoraAtual.anterior.totalRepasse}
+                    formatar={br}
+                  />
+                  <ComparativoColunas
+                    label="Lucro bruto"
+                    atual={transportadoraAtual.atual.lucroBruto}
+                    anterior={transportadoraAtual.anterior.lucroBruto}
+                    formatar={br}
+                  />
+                  <ComparativoColunas
+                    label="Gastos"
+                    atual={transportadoraAtual.gastosAtual || 0}
+                    anterior={transportadoraAtual.gastosAnterior || 0}
+                    formatar={br}
+                  />
+                  <ComparativoColunas
+                    label="Mercado Livre"
+                    atual={transportadoraAtual.atual.qtdML}
+                    anterior={transportadoraAtual.anterior.qtdML}
+                    formatar={(v) => String(v)}
+                  />
+                  <ComparativoColunas
+                    label="Shopee"
+                    atual={transportadoraAtual.atual.qtdShopee}
+                    anterior={transportadoraAtual.anterior.qtdShopee}
+                    formatar={(v) => String(v)}
+                  />
+                  <ComparativoColunas
+                    label="Avulso"
+                    atual={transportadoraAtual.atual.qtdAvulso}
+                    anterior={transportadoraAtual.anterior.qtdAvulso}
+                    formatar={(v) => String(v)}
+                  />
+                </div>
               </section>
             )}
 

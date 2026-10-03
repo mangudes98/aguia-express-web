@@ -1,7 +1,7 @@
 // ARQUIVO: src/pages/Mapa.tsx
 // A tela conserva a origem e os filtros dos pacotes do Mapa original.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   Marker,
@@ -76,6 +76,8 @@ type Ponto = Pacote & {
 
 type PontoRegiao = [number, number];
 
+type CepRegiao = { cep: string; bairro: string };
+
 type RegiaoMapa = {
   id: string;
   nome: string;
@@ -84,6 +86,8 @@ type RegiaoMapa = {
   /** Transparência da área: 0 (transparente) a 100 (sólida). */
   tom?: number;
   pontos: PontoRegiao[];
+  /** CEPs + bairros descobertos e salvos na própria região. */
+  ceps?: CepRegiao[];
   ativa?: boolean;
   criadoPor?: string;
   criadoEm?: any;
@@ -960,6 +964,47 @@ function resumirSlaOperacao(
   };
 }
 
+// ---- CEPs por região (somente exibição) ----
+// Fonte: os mesmos pacotes/baixas que alimentam os ícones do mapa,
+// considerando somente os últimos 30 dias (janela fixa, exclusiva da lista).
+// Janela interna usada SOMENTE para descobrir CEPs novos.
+const HORAS_DESCOBERTA_CEPS = 24;
+
+function chaveCep(cep: string): string {
+  const digitos = String(cep).replace(/\D/g, "");
+  return digitos.length === 7 ? digitos.padStart(8, "0") : digitos;
+}
+
+function lerCepsSalvos(bruto: any): CepRegiao[] {
+  if (!Array.isArray(bruto)) return [];
+  const mapa = new Map<string, CepRegiao>();
+  bruto.forEach((item: any) => {
+    const cep = String(item?.cep ?? item ?? "").trim();
+    const chave = chaveCep(cep);
+    if (!chave || mapa.has(chave)) return;
+    mapa.set(chave, { cep, bairro: String(item?.bairro ?? "").trim() });
+  });
+  return Array.from(mapa.values());
+}
+
+function partesCep(cep: string): [string, string, string] | null {
+  const d = chaveCep(cep);
+  return d.length === 8 ? [d.slice(0, 3), d.slice(3, 5), d.slice(5)] : null;
+}
+
+
+function cepDoPacote(p: any): string {
+  return String(
+    p?.cep ?? p?.CEP ?? p?.endereco?.cep ?? p?.destino?.cep ?? p?.enderecoCep ?? ""
+  ).trim();
+}
+
+function bairroDoPacote(p: any): string {
+  return String(
+    p?.bairro ?? p?.endereco?.bairro ?? p?.destino?.bairro ?? p?.enderecoBairro ?? ""
+  ).trim();
+}
+
 function pontoDentroRegiao(
   lat: number,
   lng: number,
@@ -1293,6 +1338,7 @@ export default function Mapa() {
             corBase: String(data.corBase || data.cor || CORES_REGIAO[0]),
             tom: normalizarTom(data.tom),
             pontos,
+            ceps: lerCepsSalvos(data.ceps),
             ativa: data.ativa === true,
             criadoPor: data.criadoPor,
             criadoEm: data.criadoEm,
@@ -1427,6 +1473,67 @@ export default function Mapa() {
 
   // Áreas das regiões: sempre visíveis no mapa.
   const regioesVisiveis = regioes;
+
+  // Descoberta automática de CEPs por região (pelo desenho):
+  // - região sem CEPs salvos: usa os pacotes já carregados dentro do desenho;
+  // - região com CEPs salvos: usa só registros das últimas 24 horas;
+  // - acrescenta apenas CEPs novos no documento da própria região.
+  const sincronizandoCeps = useRef(false);
+  useEffect(() => {
+    if (sincronizandoCeps.current || !regioes.length || !items.length) return;
+    const limite24h = Date.now() - HORAS_DESCOBERTA_CEPS * 60 * 60 * 1000;
+    const recentes = items.filter((p) => {
+      const dados = p as any;
+      const ref = timestampMs(dados.dataHoraBaixa || dados.data);
+      return Number.isFinite(ref) && ref >= limite24h;
+    });
+
+    const atualizacoes: { id: string; ceps: CepRegiao[] }[] = [];
+    regioes.forEach((regiao) => {
+      const salvos = regiao.ceps || [];
+      const fonte = salvos.length ? recentes : items;
+      const conhecidos = new Set(salvos.map((c) => chaveCep(c.cep)));
+      const novos = new Map<string, CepRegiao>();
+      pacotesDaRegiao(regiao, fonte).forEach((p: any) => {
+        const cep = cepDoPacote(p);
+        const chave = chaveCep(cep);
+        if (!chave || conhecidos.has(chave)) return;
+        const bairro = bairroDoPacote(p);
+        const atual = novos.get(chave);
+        if (!atual) novos.set(chave, { cep: chave, bairro });
+        else if (!atual.bairro && bairro) atual.bairro = bairro;
+      });
+      if (novos.size) {
+        atualizacoes.push({ id: regiao.id, ceps: [...salvos, ...novos.values()] });
+      }
+    });
+    if (!atualizacoes.length) return;
+
+    sincronizandoCeps.current = true;
+    (async () => {
+      for (const upd of atualizacoes) {
+        try {
+          await updateDoc(doc(db, "regioes_mapa", upd.id), { ceps: upd.ceps });
+          setRegioes((atual) =>
+            atual.map((r) => (r.id === upd.id ? { ...r, ceps: upd.ceps } : r))
+          );
+        } catch (error) {
+          console.error("Erro ao salvar CEPs da região:", error);
+        }
+      }
+      sincronizandoCeps.current = false;
+    })();
+  }, [regioes, items]);
+
+  // Lista exibida: CEPs + bairros salvos na própria região.
+  const cepsPorRegiao = useMemo(() => {
+    return regioes.map((regiao) => {
+      const ceps = [...(regiao.ceps || [])].sort((a, b) =>
+        chaveCep(a.cep).localeCompare(chaveCep(b.cep))
+      );
+      return { id: regiao.id, nome: regiao.nome, cor: regiao.cor, ceps };
+    });
+  }, [regioes]);
 
   // Ícones de pacotes: ocultos quando estão dentro de uma região com o olho
   // desligado. A área da região continua visível.
@@ -2820,11 +2927,79 @@ export default function Mapa() {
           </div>
         )}
       </main>
+
+      <section className="mapa-ceps-section" aria-label="CEPs por região">
+        <h2 className="mapa-ceps-title">CEPs por região</h2>
+        {cepsPorRegiao.length === 0 ? (
+          <p className="mapa-ceps-empty">Nenhuma região cadastrada.</p>
+        ) : (
+          cepsPorRegiao.map((regiao) => (
+            <div key={regiao.id} className="mapa-ceps-region">
+              <div className="mapa-ceps-region-name">
+                <span
+                  className="mapa-ceps-dot"
+                  style={{ backgroundColor: regiao.cor }}
+                />
+                <span style={{ color: regiao.cor }}>
+                  {regiao.nome.toUpperCase()}
+                </span>
+              </div>
+              {regiao.ceps.length === 0 ? (
+                <p className="mapa-ceps-empty">Nenhum CEP cadastrado.</p>
+              ) : (
+                <ul
+                  className="mapa-ceps-grid"
+                  style={(() => {
+                    // Até 4 colunas, preenchidas de cima para baixo.
+                    const total = regiao.ceps.length;
+                    const linhas = Math.max(4, Math.ceil(total / 4));
+                    const colunas = Math.max(1, Math.ceil(total / linhas));
+                    return {
+                      ["--mapa-ceps-linhas" as any]: linhas,
+                      ["--mapa-ceps-colunas" as any]: colunas,
+                    };
+                  })()}
+                >
+                  {regiao.ceps.map((item) => (
+                    <li key={item.cep} className="mapa-ceps-item">
+                      {(() => {
+                        const partes = partesCep(item.cep);
+                        return partes ? (
+                          <>
+                            {partes[0]}{" "}
+                            <span className="mapa-ceps-meio">{partes[1]}</span>{" "}
+                            {partes[2]}
+                          </>
+                        ) : (
+                          item.cep
+                        );
+                      })()}
+                      {item.bairro ? ` — ${item.bairro}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))
+        )}
+      </section>
     </div>
   );
 }
 
 const CSS_MAPA = `
+  .mapa-ceps-section { margin: 16px; padding: 18px 20px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+  .mapa-ceps-title { margin: 0 0 14px; font-size: 17px; font-weight: 700; color: #0f172a; }
+  .mapa-ceps-region { padding: 12px 0; border-top: 1px solid #f1f5f9; }
+  .mapa-ceps-region:first-of-type { border-top: 0; }
+  .mapa-ceps-region-name { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .mapa-ceps-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .mapa-ceps-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--mapa-ceps-linhas, 4), auto); grid-template-columns: repeat(var(--mapa-ceps-colunas, 1), minmax(0, max-content)); gap: 4px 32px; }
+  .mapa-ceps-meio { color: #1e3a8a; font-weight: 800; }
+  .mapa-ceps-item { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #334155; }
+  .mapa-ceps-empty { margin: 0; font-size: 13px; color: #64748b; }
+  @media (max-width: 640px) { .mapa-ceps-grid { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: 1fr; } .mapa-ceps-section { margin: 10px; } }
+
   .mapa-page {
     --mapa-ink: #0f172a;
     --mapa-muted: #64748b;

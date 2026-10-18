@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import PublicLayout from '../layouts/PublicLayout';
 import PanelLayout from '../layouts/PanelLayout';
+import PoliticaPrivacidade from "./pages/PoliticaPrivacidade";
 
 import Inicio from '../pages/Inicio';
 import Rastreamento from '../pages/Rastreamento';
@@ -91,6 +92,11 @@ export default function AppRoutes() {
       {/* =========================
           ROTA NÃO ENCONTRADA
       ========================== */}
+
+      <Route
+         path="/politica-de-privacidade"
+         element={<PoliticaPrivacidade />}
+      />
 
       <Route
         path="*"

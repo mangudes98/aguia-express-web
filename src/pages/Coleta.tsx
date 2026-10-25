@@ -1372,6 +1372,31 @@ function ListaTipo({
 
   const current = filtered[index] || null;
 
+  useEffect(() => {
+    if (!visual || filtered.length < 2) return;
+
+    function handleViewerNavigation(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditing =
+        target?.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");
+      if (isEditing) return;
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setIndex(currentIndex => Math.max(0, currentIndex - 1));
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setIndex(currentIndex =>
+          Math.min(filtered.length - 1, currentIndex + 1)
+        );
+      }
+    }
+
+    window.addEventListener("keydown", handleViewerNavigation);
+    return () => window.removeEventListener("keydown", handleViewerNavigation);
+  }, [visual, filtered.length]);
+
   async function mark(
     id: string,
     field: "erro" | "subiu"

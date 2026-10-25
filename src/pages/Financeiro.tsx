@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDollarSign,
+  Download,
   Edit3,
   Clock3,
   Eye,
@@ -55,6 +56,7 @@ import {
   nomePorEmail,
 } from "../services/financeiro";
 import { Repasse, Usuario } from "../types";
+import { printCompanyInvoice } from "../services/companyInvoice";
 
 type AnyDoc = Record<string, any> & {
   id: string;
@@ -3570,6 +3572,32 @@ export default function Financeiro() {
     }
   }
 
+  function baixarCobrancaEmpresa() {
+    if (
+      !allowed || checkingAccess || loading || erro ||
+      !empresaCalculada || confirmandoFechamento
+    ) return;
+
+    try {
+      // Não passar o objeto completo: custos e dados de acesso são internos.
+      printCompanyInvoice({
+        companyName: String(empresaCalculada.empresaNome),
+        periodStart: diaInicio(dataInicioFechamento),
+        periodEnd: diaFim(dataFimFechamento),
+        issuedAt: new Date(),
+        marketCount: empresaCalculada.qtdML,
+        shopeeCount: empresaCalculada.qtdShopee,
+        adHocCount: empresaCalculada.qtdAvulso,
+        marketRate: empresaCalculada.valorML,
+        shopeeRate: empresaCalculada.valorShopee,
+        adHocRate: empresaCalculada.valorAvulso,
+        totalToPay: empresaCalculada.totalReceber,
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível gerar a cobrança.");
+    }
+  }
+
   async function confirmarFechamento() {
     if (
       !empresaCalculada ||
@@ -6082,6 +6110,37 @@ export default function Financeiro() {
                     >
                       Baseado nos pacotes da empresa dentro do período.
                     </small>
+
+                    <div
+                      style={{
+                        margin: "16px 0 24px",
+                        padding: 16,
+                        border: "1px solid #d6b55b",
+                        borderRadius: 10,
+                        background: "#fff9e9",
+                        color: "#18212e",
+                      }}
+                    >
+                      <b>Cobrança da empresa</b>
+                      <p style={{ margin: "8px 0 12px", fontSize: 13 }}>
+                        Fatura com o período, pacotes coletados por tipo,
+                        valores unitários e total devido. Sem lucro nem
+                        repasses dos entregadores.
+                      </p>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={baixarCobrancaEmpresa}
+                        disabled={loading || !!erro || !allowed || confirmandoFechamento}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                      >
+                        <Download size={17} /> Baixar cobrança (PDF)
+                      </button>
+                      <small style={{ display: "block", marginTop: 10 }}>
+                        Na janela do navegador, escolha Salvar como PDF.
+                        Baixar não confirma pagamento nem salva outro fechamento.
+                      </small>
+                    </div>
 
                     <Linha
                       label="Repasse aos entregadores"

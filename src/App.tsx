@@ -16,6 +16,7 @@ import Coleta from "./pages/Coleta";
 import Rastreamento from "./pages/Rastreamento";
 import WhatsApp from "./pages/whatsapp";
 import FinanceiroGeral from "./pages/FinanceiroGeral";
+import PoliticaPrivacidade from "./pages/PoliticaPrivacidade";
 
 function LoginRedirect() {
   const { user, loading } = useAuth();
@@ -35,6 +36,10 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route
+          path="/politica-de-privacidade"
+          element={<PoliticaPrivacidade />}
+        />
         <Route path="/" element={<Inicio />} />
         <Route path="/login" element={<LoginRedirect />} />
         <Route element={<Protected />}>

@@ -39,6 +39,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../services/firebase/firebase";
@@ -48,6 +49,11 @@ const EMPTY = "__sem_transportadora__";
 
 type Code = Record<string, any> & { id: string };
 type Pasta = Record<string, any> & { id: string };
+type PendingCollectionCode = {
+  id: string;
+  type: string;
+  raw: string;
+};
 
 const COLETA_CSS = `
 .coleta-shell{
@@ -709,7 +715,7 @@ function Pastas() {
     return onSnapshot(
       query(
         collection(db, "controle_codigos"),
-        where("status", "==", "COLETADO")
+        where("status", "in", ["COLETADO", "CANCELADO"])
       ),
       s => {
         const counts: Record<string, number> = {};
@@ -878,7 +884,7 @@ function PastaDetail({ pastaId }: { pastaId: string }) {
       query(
         collection(db, "controle_codigos"),
         where("empresa", "==", pastaId),
-        where("status", "==", "COLETADO")
+        where("status", "in", ["COLETADO", "CANCELADO"])
       ),
       s =>
         setCodes(
@@ -1094,8 +1100,9 @@ function Scanner({
 }) {
   const [raw, setRaw] = useState("");
   const [last, setLast] = useState("");
-  const [codes, setCodes] = useState<string[]>([]);
+  const [codes, setCodes] = useState<PendingCollectionCode[]>([]);
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const hidInput = useRef<HTMLInputElement>(null);
   const hidBuffer = useRef("");
   const hidTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1154,48 +1161,80 @@ function Scanner({
             ? "SHOPEE"
             : tipo(codigo);
 
-      await setDoc(
-        doc(db, "controle_codigos", codigo),
-        {
-          codigo,
-          status: "COLETADO",
-          usuario: auth.currentUser?.email,
-          empresa: pastaId,
-          tipo: packageType,
-          raw: scanned?.raw ?? input,
-          erro: false,
-          subiu: false,
-          data: serverTimestamp(),
-          historico: [
-          {
-            status: "COLETADO",
-            dataHora: new Date(),
-          },
-          ],
-        },
-        { merge: true }
-      );
-
-      await setDoc(
-        doc(db, "coletas", pastaId, "codigos", codigo),
-        {
-          codigo,
-          data: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
       codesRef.current.add(codigo);
-      setCodes(current => [codigo, ...current]);
+      setCodes(current => [
+        { id: codigo, type: packageType, raw: scanned?.raw ?? input },
+        ...current,
+      ]);
       setLast(codigo);
-      setMessage("Código reconhecido e coletado.");
-      setTimeout(() => setMessage(""), 1500);
+      setMessage("QR lido. Confirme a coleta para gravar os pacotes.");
     } catch (error) {
-      console.error("Falha ao registrar pacote coletado:", error);
-      setMessage(`Não foi possível registrar ${codigo}. Tente novamente.`);
+      console.error("Falha ao validar pacote bipado:", error);
+      setMessage(`Não foi possível verificar ${codigo}. Tente novamente.`);
     } finally {
       processing.current.delete(codigo);
       hidInput.current?.focus();
+    }
+  }
+
+  async function confirmCollection() {
+    if (!codes.length || saving) return;
+    setSaving(true);
+    const committed: string[] = [];
+    try {
+      for (let offset = 0; offset < codes.length; offset += 200) {
+        const chunk = codes.slice(offset, offset + 200);
+        const batch = writeBatch(db);
+        for (const item of chunk) {
+          batch.set(
+            doc(db, "controle_codigos", item.id),
+            {
+              codigo: item.id,
+              status: "COLETADO",
+              usuario: auth.currentUser?.email,
+              empresa: pastaId,
+              tipo: item.type,
+              raw: item.raw,
+              erro: false,
+              cancelado: false,
+              subiu: false,
+              data: serverTimestamp(),
+              historico: [
+                {
+                  status: "COLETADO",
+                  dataHora: new Date(),
+                },
+              ],
+            },
+            { merge: true },
+          );
+          batch.set(
+            doc(db, "coletas", pastaId, "codigos", item.id),
+            {
+              codigo: item.id,
+              data: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+        await batch.commit();
+        committed.push(...chunk.map(item => item.id));
+        setCodes(current =>
+          current.filter(item => !committed.includes(item.id)),
+        );
+      }
+
+      setMessage("Coleta confirmada e gravada.");
+      onClose();
+    } catch (error) {
+      console.error("Falha ao confirmar coleta:", error);
+      setMessage(
+        committed.length
+          ? "Parte da coleta foi gravada. Os QR restantes continuam pendentes."
+          : "Não foi possível gravar a coleta. Os QR continuam pendentes.",
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1280,19 +1319,26 @@ function Scanner({
           />
 
           <div className="scan-list">
-            {codes.map(c => (
-              <div key={c}>
+            {codes.map(item => (
+              <div key={item.id}>
                 <span>
                   <QrCode size={15} />
-                  {c}
-                  <small>{tipoLabel(tipo(c))}</small>
+                  {item.id}
+                  <small>{tipoLabel(item.type)}</small>
                 </span>
+                <small>PENDENTE</small>
               </div>
             ))}
           </div>
 
-          <button className="primary full" onClick={onClose}>
-            Finalizar leitura
+          <button
+            className="primary full"
+            onClick={() => void confirmCollection()}
+            disabled={!codes.length || saving}
+          >
+            {saving
+              ? "Gravando coleta..."
+              : `Confirmar coleta${codes.length ? ` · ${codes.length}` : ""}`}
           </button>
         </div>
       </div>
@@ -1343,7 +1389,10 @@ function fazParteDoFiltro(item: Code, filtro: FiltroStatus) {
 }
 
 function classeStatusQr(item: Code) {
-  if (String(item.status || "").toUpperCase() === "CANCELADO") {
+  if (
+    item.cancelado === true ||
+    String(item.status || "").toUpperCase() === "CANCELADO"
+  ) {
     return "cancelled";
   }
   if (item.erro === true) return "error";
@@ -1371,7 +1420,7 @@ function ListaTipo({
       query(
         collection(db, "controle_codigos"),
         where("empresa", "==", pastaId),
-        where("status", "==", "COLETADO")
+        where("status", "in", ["COLETADO", "CANCELADO"])
       ),
       s => {
         setItems(
@@ -1463,10 +1512,10 @@ function ListaTipo({
 
     const updates =
       field === "cancelado"
-        ? { status: "CANCELADO", erro: true, subiu: false }
+        ? { cancelado: true, erro: true, subiu: false }
         : field === "erro"
-          ? { status: "COLETADO", erro: true, subiu: false }
-          : { status: "COLETADO", erro: false, subiu: true };
+          ? { cancelado: false, erro: true, subiu: false }
+          : { status: "COLETADO", cancelado: false, erro: false, subiu: true };
 
     await updateDoc(doc(db, "controle_codigos", id), updates);
 
@@ -1732,12 +1781,14 @@ function ListaTipo({
                 {c.erro && (
                   <em
                     className={`badge ${
+                      c.cancelado === true ||
                       String(c.status || "").toUpperCase() === "CANCELADO"
                         ? "cancelled"
                         : "warning"
                     }`}
                   >
-                    {String(c.status || "").toUpperCase() === "CANCELADO"
+                    {c.cancelado === true ||
+                    String(c.status || "").toUpperCase() === "CANCELADO"
                       ? "CANCELADO"
                       : "ERRO"}
                   </em>

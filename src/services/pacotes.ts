@@ -20,6 +20,7 @@ const normalizarStatus = (value: unknown): StatusPacote => {
   if (status === "ENTREGUE") return "ENTREGUE";
   if (status === "AUSENTE") return "AUSENTE";
   if (status === "DEVOLVIDO") return "DEVOLVIDO";
+  if (status === "CANCELADO") return "CANCELADO";
   return "ROTA";
 };
 
@@ -135,6 +136,7 @@ export function nomeStatus(status: StatusPacote): string {
     ENTREGUE: "Entregue",
     AUSENTE: "Ausente",
     DEVOLVIDO: "Devolvido",
+    CANCELADO: "Cancelado",
   };
   return map[status];
 }

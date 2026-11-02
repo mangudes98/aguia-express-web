@@ -1,5 +1,5 @@
 // ARQUIVO: src/types/index.ts
-export type StatusPacote = "COLETADO" | "ROTA" | "ENTREGUE" | "AUSENTE" | "DEVOLVIDO";
+export type StatusPacote = "COLETADO" | "ROTA" | "ENTREGUE" | "AUSENTE" | "DEVOLVIDO" | "CANCELADO";
 export type TipoPacote = "MERCADO_LIVRE" | "SHOPEE" | "AVULSO" | string;
 
 export interface Usuario { id:string; email:string; nome:string; tipo?:string; perfil?:string; empresaId?:string; ativo?:boolean; regiao?:string; telefone?:string; banco?:string; pix?:string; favorecido?:string; ganhos?:number; permissoes?:Record<string,unknown>; }

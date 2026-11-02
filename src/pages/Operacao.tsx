@@ -42,8 +42,9 @@ import {
 } from "../services/pacotes";
 import { auth, db } from "../services/firebase/firebase";
 import { StatusPacote } from "../types";
+import GerenciarPacotes from "./GerenciarPacotes";
 
-type Visualizacao = "QR" | "USUARIOS" | "SLA";
+type Visualizacao = "QR" | "USUARIOS" | "SLA" | "GERENCIAR";
 
 const STATUS_FILTRO: {
   status: StatusPacote;
@@ -55,6 +56,7 @@ const STATUS_FILTRO: {
   { status: "ENTREGUE", label: "ENTREGUE", color: "#16a34a" },
   { status: "AUSENTE", label: "AUSENTE", color: "#ef4444" },
   { status: "DEVOLVIDO", label: "DEVOLVIDO", color: "#6b7280" },
+  { status: "CANCELADO", label: "CANCELADO", color: "#dc2626" },
 ];
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -190,12 +192,15 @@ function usePermission() {
 
           const u = snap.docs[0]?.data();
 
-          setState(
+          const permissions = u?.permissoes || {};
+          const canOpenOperation =
             u?.tipo === "admin" ||
-              u?.permissoes?.finalizados === true
-              ? "ok"
-              : "denied"
-          );
+            permissions.finalizados === true ||
+            permissions.editarPacote === true ||
+            permissions.editar_pacote === true ||
+            permissions.operacao?.editar_pacote === true ||
+            permissions.operacao?.editarPacote === true;
+          setState(canOpenOperation ? "ok" : "denied");
         } catch (error) {
           console.error(
             "Erro ao verificar permissão da Operação:",
@@ -1743,7 +1748,7 @@ export default function Operacao() {
           subtitle="Controle operacional dos pacotes."
         />
 
-        {visualizacao !== "SLA" && (
+        {(visualizacao === "QR" || visualizacao === "USUARIOS") && (
           <div
             className="card"
             style={{
@@ -2084,7 +2089,27 @@ export default function Operacao() {
             <BarChart3 size={17} />
             SLA
           </button>
+
+          <button
+            onClick={() => setVisualizacao("GERENCIAR")}
+            style={{
+              ...botao,
+              background:
+                visualizacao === "GERENCIAR"
+                  ? "#111827"
+                  : "#fff",
+              color:
+                visualizacao === "GERENCIAR"
+                  ? "#fff"
+                  : "#111827",
+            }}
+          >
+            <Package size={17} />
+            GERENCIAR PACOTES
+          </button>
         </div>
+
+        {visualizacao === "GERENCIAR" && <GerenciarPacotes />}
 
         {!loading && visualizacao === "SLA" && (
           <SlaOperacao
@@ -2646,7 +2671,7 @@ export default function Operacao() {
             </div>
           )}
 
-        {loading && (
+        {loading && visualizacao !== "GERENCIAR" && (
           <div
             className="card"
             style={{

@@ -271,7 +271,11 @@ const COLETA_CSS = `
 /* O STATUS MARCA APENAS O CONTORNO; O QR E O FUNDO PERMANECEM BRANCOS. */
 .coleta-shell .qr-wrap.error{
   background:#fff!important;
-  box-shadow:inset 0 0 0 5px #ff5b5b
+  box-shadow:inset 0 0 0 5px #f97316
+}
+.coleta-shell .qr-wrap.cancelled{
+  background:#fff!important;
+  box-shadow:inset 0 0 0 5px #ef4444
 }
 .coleta-shell .qr-wrap.uploaded{
   background:#fff!important;
@@ -297,11 +301,19 @@ const COLETA_CSS = `
   font-size:10px;font-weight:800
 }
 .coleta-shell .badge.error{color:#d92d20;background:#fff0f0}
+.coleta-shell .badge.cancelled{color:#d92d20;background:#fff0f0}
+.coleta-shell .badge.warning{color:#c2410c;background:#fff7ed}
 .coleta-shell .badge.info{color:#175cd3;background:#eff8ff}
 .coleta-shell .code-card .action-row{grid-column:1/-1}
 .coleta-shell .action-row{display:flex;flex-wrap:wrap;gap:8px}
 .coleta-shell .action-row button{
   min-height:34px;padding:0 10px;font-size:11px
+}
+.coleta-shell .action-row button.error-status{
+  border:1px solid #ea580c;background:#f97316;color:#fff
+}
+.coleta-shell .action-row button.cancelled-status{
+  border:1px solid #dc2626;background:#ef4444;color:#fff
 }
 .coleta-shell .viewer{
   max-width:780px;margin:34px auto;padding:32px;display:flex;align-items:center;
@@ -324,10 +336,16 @@ const COLETA_CSS = `
   display:flex;align-items:center;justify-content:center;overflow:hidden
 }
 
-/* ERRO = CONTORNO VERMELHO, SEM PINTAR O FUNDO OU O QR. */
+/* ERRO = CONTORNO LARANJA, SEM PINTAR O FUNDO OU O QR. */
 .coleta-shell .viewer .qr-present.error{
   background:#fff!important;
-  border:5px solid #ff5b5b!important
+  border:5px solid #f97316!important
+}
+
+/* CANCELADO = CONTORNO VERMELHO. */
+.coleta-shell .viewer .qr-present.cancelled{
+  background:#fff!important;
+  border:5px solid #ef4444!important
 }
 
 /* SUBIU = CONTORNO AZUL, SEM PINTAR O FUNDO OU O QR. */
@@ -1295,6 +1313,15 @@ function fazParteDoFiltro(item: Code, filtro: FiltroStatus) {
   return true;
 }
 
+function classeStatusQr(item: Code) {
+  if (String(item.status || "").toUpperCase() === "CANCELADO") {
+    return "cancelled";
+  }
+  if (item.erro === true) return "error";
+  if (item.subiu === true) return "uploaded";
+  return "";
+}
+
 function ListaTipo({
   pastaId,
   tipo: filter,
@@ -1401,20 +1428,24 @@ function ListaTipo({
 
   async function mark(
     id: string,
-    field: "erro" | "subiu"
+    field: "erro" | "cancelado" | "subiu"
   ) {
     if (!id) return;
 
-    await updateDoc(doc(db, "controle_codigos", id), {
-      [field]: true,
-      [field === "erro" ? "subiu" : "erro"]: false,
-    });
+    const updates =
+      field === "cancelado"
+        ? { status: "CANCELADO", erro: true, subiu: false }
+        : field === "erro"
+          ? { status: "COLETADO", erro: true, subiu: false }
+          : { status: "COLETADO", erro: false, subiu: true };
+
+    await updateDoc(doc(db, "controle_codigos", id), updates);
 
     setSelected(v => v.filter(x => x !== id));
   }
 
   async function markCurrent(
-    field: "erro" | "subiu"
+    field: "erro" | "cancelado" | "subiu"
   ) {
     if (!current) return;
 
@@ -1544,13 +1575,7 @@ function ListaTipo({
               </span>
 
               <div
-                className={`qr-present ${
-                  current.erro
-                    ? "error"
-                    : current.subiu
-                    ? "uploaded"
-                    : ""
-                }`}
+                className={`qr-present ${classeStatusQr(current)}`}
               >
                 <QRCodeSVG
                   value={
@@ -1581,10 +1606,17 @@ function ListaTipo({
                 </button>
 
                 <button
-                  className="danger"
+                  className="error-status"
                   onClick={() => markCurrent("erro")}
                 >
                   ERRO
+                </button>
+
+                <button
+                  className="cancelled-status"
+                  onClick={() => markCurrent("cancelado")}
+                >
+                  CANCELADO
                 </button>
 
                 <button
@@ -1643,13 +1675,7 @@ function ListaTipo({
               onClick={() => openVisual(c)}
             >
               <div
-                className={`qr-wrap ${
-                  c.erro
-                    ? "error"
-                    : c.subiu
-                    ? "uploaded"
-                    : ""
-                }`}
+                className={`qr-wrap ${classeStatusQr(c)}`}
               >
                 <QRCodeSVG
                   value={
@@ -1675,8 +1701,16 @@ function ListaTipo({
                 <small>{data(c.data)}</small>
 
                 {c.erro && (
-                  <em className="badge error">
-                    ERRO
+                  <em
+                    className={`badge ${
+                      String(c.status || "").toUpperCase() === "CANCELADO"
+                        ? "cancelled"
+                        : "warning"
+                    }`}
+                  >
+                    {String(c.status || "").toUpperCase() === "CANCELADO"
+                      ? "CANCELADO"
+                      : "ERRO"}
                   </em>
                 )}
 
@@ -1702,13 +1736,23 @@ function ListaTipo({
 
               <div className="action-row">
                 <button
-                  className="danger"
+                  className="error-status"
                   onClick={e => {
                     e.stopPropagation();
                     mark(c.id, "erro");
                   }}
                 >
                   ERRO
+                </button>
+
+                <button
+                  className="cancelled-status"
+                  onClick={e => {
+                    e.stopPropagation();
+                    mark(c.id, "cancelado");
+                  }}
+                >
+                  CANCELADO
                 </button>
 
                 <button

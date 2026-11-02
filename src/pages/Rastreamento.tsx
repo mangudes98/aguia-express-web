@@ -93,7 +93,129 @@ function formatarData(data: any) {
 }
 
 function normalizarCodigo(codigo: string) {
-  return codigo.trim().toUpperCase();
+  const entrada = codigo.trim();
+  if (!entrada) return "";
+
+  try {
+    const dados: unknown = JSON.parse(entrada);
+    if (isObjetoCodigo(dados)) {
+      // Payload JSON válido: aplica a extração usada na coleta.
+      return extrairCodigoDoPayload(dados) ?? entrada;
+    }
+  } catch {
+    // Leitores HID podem alterar aspas, dois-pontos e acentos das chaves.
+  }
+
+  const camposHid = recuperarCamposHid(entrada);
+  if (camposHid) {
+    const codigoExtraido = extrairCodigoDoPayload(camposHid);
+    if (codigoExtraido) return codigoExtraido;
+  }
+
+  // Mantém a normalização histórica dos códigos digitados e QR simples.
+  return entrada.toUpperCase();
+}
+
+function isObjetoCodigo(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function valorNaoVazio(data: Record<string, unknown>, key: string) {
+  const value = data[key];
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function valorAlternativo(
+  data: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = data[key];
+    if (value !== undefined && value !== null) return String(value);
+  }
+  return null;
+}
+
+/**
+ * Extrai o identificador conforme as regras da coleta:
+ * Mercado Livre usa id; VAPT usa external_grouper_code;
+ * avulso JSON usa SORTER_CODE + EXTERNAL_ORDER_ID.
+ */
+function extrairCodigoDoPayload(data: Record<string, unknown>): string | null {
+  if (
+    valorNaoVazio(data, "id") &&
+    valorNaoVazio(data, "sender_id") &&
+    Object.prototype.hasOwnProperty.call(data, "hash_code") &&
+    Object.prototype.hasOwnProperty.call(data, "security_digit")
+  ) {
+    return String(data.id).trim();
+  }
+
+  const camposVapt = [
+    "external_grouper_code",
+    "external_code",
+    "tag_code",
+    "logistical_flow_start",
+    "logistical_flow_operation",
+    "service_name",
+  ];
+  if (
+    camposVapt.every((key) => valorNaoVazio(data, key)) &&
+    String(data.service_name).trim().toUpperCase() === "VAPT_EXPRESS"
+  ) {
+    return String(data.external_grouper_code).trim();
+  }
+
+  const sorterCode = valorAlternativo(data, ["SORTER_CODE", "sorter_code"]);
+  const externalOrderId = valorAlternativo(data, [
+    "EXTERNAL_ORDER_ID",
+    "external_order_id",
+  ]);
+  if (sorterCode?.trim() && externalOrderId?.trim()) {
+    return sorterCode.trim();
+  }
+
+  return null;
+}
+
+function recuperarCamposHid(input: string): Record<string, unknown> | null {
+  let normalized = input.replace(/ˆÇ/g, ":").replace(/ˋ/g, "{");
+  const trimmed = normalized.trimEnd();
+  if (
+    (input.includes("ˆÇ") || input.trimStart().startsWith("ˋ")) &&
+    trimmed.endsWith("{")
+  ) {
+    normalized = `${trimmed.slice(0, -1)}}`;
+  }
+
+  const pattern =
+    /(?:^|[,{;\s"'`´^ˆ])([A-Za-z\u00C0-\u024F][A-Za-z0-9_\u00C0-\u024F\u0300-\u036F]*)["'`´^ˆ]*\s*[:=]\s*(?:(["'`´^ˆ])((?:\\.|[\s\S])*?)\2|([^,}\r\n\t]+?))\s*(?=[,}]|$)/gi;
+  const fields: Record<string, unknown> = {};
+  for (const match of normalized.matchAll(pattern)) {
+    const key = match[1]
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    let value: unknown = match[3];
+
+    if (value === undefined) {
+      const unquoted = match[4]?.trim();
+      if (unquoted === undefined) continue;
+      value =
+        unquoted.replace(/^["'`´^ˆ]+|["'`´^ˆ]+$/g, "") === "null"
+          ? null
+          : unquoted.replace(/^["'`´^ˆ]+|["'`´^ˆ]+$/g, "");
+    } else if (match[2] === '"') {
+      try {
+        value = JSON.parse(`"${value}"`);
+      } catch {
+        // Mantém o conteúdo original se a pistola alterou os escapes.
+      }
+    }
+    fields[key] = value;
+  }
+
+  return Object.keys(fields).length ? fields : null;
 }
 
 function corHistoricoRastreamento(status: string) {
@@ -1899,7 +2021,8 @@ export default function Rastreamento() {
                   setCodigo(e.target.value)
                 }
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    if (e.key === "Tab") e.preventDefault();
                     pesquisar();
                   }
                 }}

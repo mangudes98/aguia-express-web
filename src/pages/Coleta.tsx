@@ -416,7 +416,9 @@ function data(v: any) {
 }
 
 function tipoLabel(t: string) {
-  return t === "MERCADO_LIVRE"
+  return ["MERCADO_LIVRE", "MERCADO LIVRE"].includes(
+    t.trim().toUpperCase().replace(/\s+/g, " "),
+  )
     ? "Mercado Livre"
     : t === "SHOPEE"
     ? "Shopee"
@@ -1156,7 +1158,7 @@ function Scanner({
         /MERCADO[_ ]?LIVRE/.test(declaredType) ||
         Boolean(fields.sender_id) ||
         /^\d{11}$/.test(codigo)
-          ? "MERCADO_LIVRE"
+          ? "MERCADO LIVRE"
           : /SHOPEE/.test(declaredType) || /^BR[A-Z0-9]+$/i.test(codigo)
             ? "SHOPEE"
             : tipo(codigo);

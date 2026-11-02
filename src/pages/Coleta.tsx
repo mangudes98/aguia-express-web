@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   LockKeyhole,
   ArrowLeft,
-  Check,
   ChevronRight,
   Copy,
   Edit3,
@@ -43,6 +42,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../services/firebase/firebase";
+import { extractScannedCode } from "../services/packageTransferHid";
 
 const EMPTY = "__sem_transportadora__";
 
@@ -198,29 +198,33 @@ const COLETA_CSS = `
   grid-template-columns:minmax(0,1.35fr) minmax(340px,.65fr);gap:22px;align-items:start
 }
 .coleta-shell .scanner-box{
-  height:min(65vh,620px);min-height:400px;position:relative;overflow:hidden;
-  border-radius:22px;background:#030405;border:1px solid #d3a52b;
-  box-shadow:0 20px 50px rgba(38,53,73,.18)
+  min-height:400px;position:relative;overflow:hidden;padding:30px;
+  border-radius:22px;background:linear-gradient(145deg,#111827,#202b3a);
+  border:1px solid #d3a52b;box-shadow:0 20px 50px rgba(38,53,73,.18);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;color:#fff
 }
-.coleta-shell .scanner-box video{
-  width:100%;height:100%;object-fit:cover;opacity:.78
+.coleta-shell .hid-scanner-icon{
+  width:88px;height:88px;border-radius:24px;margin-bottom:20px;
+  display:grid;place-items:center;color:#d3a52b;background:#d3a52b18;
+  border:1px solid #d3a52b66
 }
-.coleta-shell .scan-frame{
-  position:absolute;inset:50% auto auto 50%;width:230px;height:230px;
-  transform:translate(-50%,-54%);border:2px solid #d3a52b;border-radius:18px;
-  box-shadow:0 0 0 999px rgba(0,0,0,.48),0 0 30px rgba(201,162,39,.25)
+.coleta-shell .hid-scanner-title{font-size:23px;font-weight:800}
+.coleta-shell .hid-scanner-copy{
+  max-width:410px;margin:10px 0 20px;color:#d0d5dd;font-size:14px;line-height:1.55
 }
-.coleta-shell .scan-frame:after{
-  content:"";position:absolute;left:12px;right:12px;top:50%;height:2px;
-  background:#d3a52b;box-shadow:0 0 14px #d3a52b;
-  animation:scanline 2.3s ease-in-out infinite
+.coleta-shell .hid-scanner-state{
+  display:inline-flex;align-items:center;gap:9px;padding:10px 14px;
+  border:1px solid #ffffff25;border-radius:999px;background:#ffffff0d;
+  font-size:12px;color:#f2f4f7
 }
-@keyframes scanline{
-  0%,100%{transform:translateY(-94px);opacity:.35}
-  50%{transform:translateY(94px);opacity:1}
+.coleta-shell .hid-scanner-state:before{
+  content:"";width:9px;height:9px;border-radius:50%;background:#12b76a;
+  box-shadow:0 0 0 4px #12b76a22
 }
-.coleta-shell .scanner-help{
-  position:absolute;bottom:22px;left:0;right:0;text-align:center;color:#fff;font-size:12px
+.coleta-shell .hid-input{
+  position:fixed!important;left:-10000px!important;top:0!important;width:1px!important;
+  height:1px!important;opacity:0!important;pointer-events:none!important
 }
 .coleta-shell .scanner-manual{padding:22px}
 .coleta-shell .scanner-manual h3{margin:0 0 15px;font-size:17px}
@@ -389,19 +393,6 @@ function tipo(codigo: string) {
   if (codigo.toUpperCase().startsWith("BR")) return "SHOPEE";
   if (/^\d{11}$/.test(codigo)) return "MERCADO_LIVRE";
   return "AVULSO";
-}
-
-function extrairCodigo(raw: string) {
-  try {
-    const json = JSON.parse(raw);
-    return String(json.external_grouper_code ?? json.id ?? json.ID ?? raw);
-  } catch {
-    return raw;
-  }
-}
-
-function normalizar(raw: string) {
-  return extrairCodigo(raw).toUpperCase().replace(/\s/g, "").trim();
 }
 
 function mostrar(codigo: string) {
@@ -1101,116 +1092,134 @@ function Scanner({
   pastaId: string;
   onClose: () => void;
 }) {
-  const video = useRef<HTMLVideoElement>(null);
-
   const [raw, setRaw] = useState("");
   const [last, setLast] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
   const [message, setMessage] = useState("");
+  const hidInput = useRef<HTMLInputElement>(null);
+  const hidBuffer = useRef("");
+  const hidTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processing = useRef(new Set<string>());
+  const codesRef = useRef(new Set<string>());
 
   useEffect(() => {
-    let stream: MediaStream | undefined;
-    let timer: number;
-
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-        });
-
-        if (video.current) {
-          video.current.srcObject = stream;
-          await video.current.play();
-        }
-
-        const Detector = (window as any).BarcodeDetector;
-
-        if (Detector) {
-          const d = new Detector({
-            formats: ["qr_code"],
-          });
-
-          timer = window.setInterval(async () => {
-            if (video.current?.readyState === 4) {
-              const found = await d.detect(video.current);
-
-              if (found[0]?.rawValue) {
-                save(found[0].rawValue);
-              }
-            }
-          }, 700);
-        }
-      } catch {
-        setMessage("Câmera indisponível. Digite o código abaixo.");
-      }
-    })();
-
+    const focusInput = () => hidInput.current?.focus();
+    focusInput();
+    const focusTimer = window.setTimeout(focusInput, 100);
     return () => {
-      stream?.getTracks().forEach(t => t.stop());
-
-      if (timer) {
-        clearInterval(timer);
-      }
+      window.clearTimeout(focusTimer);
+      if (hidTimer.current) clearTimeout(hidTimer.current);
     };
   }, []);
 
   async function save(input: string) {
-    const codigo = normalizar(input);
+    const scanned = extractScannedCode(input);
+    const codigo = scanned?.code.toUpperCase().replace(/\s/g, "").trim() || "";
+    if (!codigo) {
+      setMessage("Não consegui extrair o código original. Bipe novamente.");
+      return;
+    }
 
-    if (!codigo || codes.includes(codigo)) {
+    hidBuffer.current = "";
+    setRaw("");
+    if (hidInput.current) hidInput.current.value = "";
+
+    if (codesRef.current.has(codigo) || processing.current.has(codigo)) {
       setMessage(`QR já lido: ${codigo}`);
       return;
     }
 
-    const existing = await getDoc(
-      doc(db, "controle_codigos", codigo)
-    ).catch(() => null);
+    processing.current.add(codigo);
+    try {
+      const existing = await getDoc(
+        doc(db, "controle_codigos", codigo)
+      ).catch(() => null);
 
-    if (
-      existing?.exists() &&
-      existing.data()?.status !== "COLETADO"
-    ) {
-      setMessage(`QR já existe: ${codigo}`);
-      return;
-    }
+      if (
+        existing?.exists() &&
+        existing.data()?.status !== "COLETADO"
+      ) {
+        setMessage(`QR já existe: ${codigo}`);
+        return;
+      }
 
-    await setDoc(
-      doc(db, "controle_codigos", codigo),
-      {
-        codigo,
-        status: "COLETADO",
-        usuario: auth.currentUser?.email,
-        empresa: pastaId,
-        tipo: tipo(codigo),
-        raw: input,
-        erro: false,
-        subiu: false,
-        data: serverTimestamp(),
-        historico: [
+      const fields = scanned?.fields ?? {};
+      const declaredType = `${fields.tipo || ""} ${fields.type || ""} ${fields.service_name || ""}`.toUpperCase();
+      const packageType =
+        /MERCADO[_ ]?LIVRE/.test(declaredType) ||
+        Boolean(fields.sender_id) ||
+        /^\d{11}$/.test(codigo)
+          ? "MERCADO_LIVRE"
+          : /SHOPEE/.test(declaredType) || /^BR[A-Z0-9]+$/i.test(codigo)
+            ? "SHOPEE"
+            : tipo(codigo);
+
+      await setDoc(
+        doc(db, "controle_codigos", codigo),
+        {
+          codigo,
+          status: "COLETADO",
+          usuario: auth.currentUser?.email,
+          empresa: pastaId,
+          tipo: packageType,
+          raw: scanned?.raw ?? input,
+          erro: false,
+          subiu: false,
+          data: serverTimestamp(),
+          historico: [
           {
             status: "COLETADO",
             dataHora: new Date(),
           },
-        ],
-      },
-      { merge: true }
-    );
+          ],
+        },
+        { merge: true }
+      );
 
-    await setDoc(
-      doc(db, "coletas", pastaId, "codigos", codigo),
-      {
-        codigo,
-        data: serverTimestamp(),
-      },
-      { merge: true }
-    );
+      await setDoc(
+        doc(db, "coletas", pastaId, "codigos", codigo),
+        {
+          codigo,
+          data: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-    setCodes(v => [codigo, ...v]);
-    setLast(codigo);
-    setRaw("");
-    setMessage("Código coletado com sucesso.");
+      codesRef.current.add(codigo);
+      setCodes(current => [codigo, ...current]);
+      setLast(codigo);
+      setMessage("Código reconhecido e coletado.");
+      setTimeout(() => setMessage(""), 1500);
+    } catch (error) {
+      console.error("Falha ao registrar pacote coletado:", error);
+      setMessage(`Não foi possível registrar ${codigo}. Tente novamente.`);
+    } finally {
+      processing.current.delete(codigo);
+      hidInput.current?.focus();
+    }
+  }
 
-    setTimeout(() => setMessage(""), 1500);
+  function onHidInput(value: string) {
+    hidBuffer.current = value;
+    setRaw(value);
+    if (hidTimer.current) clearTimeout(hidTimer.current);
+
+    const candidate = value.trim();
+    const completeJson =
+      candidate.startsWith("{") && candidate.endsWith("}");
+    const completeHidJson =
+      candidate.startsWith("ˋ") && candidate.endsWith("{");
+
+    if (completeJson || completeHidJson) {
+      void save(value);
+      return;
+    }
+
+    hidTimer.current = setTimeout(() => {
+      if (hidBuffer.current.trim() === candidate && candidate) {
+        void save(candidate);
+      }
+    }, 90);
   }
 
   return (
@@ -1222,33 +1231,53 @@ function Scanner({
       />
 
       <div className="scanner-layout">
-        <div className="scanner-box">
-          <video ref={video} muted playsInline />
-          <div className="scan-frame" />
-          <div className="scanner-help">
-            Aponte o QR Code para a moldura
+        <div
+          className="scanner-box"
+          onClick={() => hidInput.current?.focus()}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="hid-scanner-icon"><QrCode size={42} /></div>
+          <div className="hid-scanner-title">Leitor HID pronto</div>
+          <p className="hid-scanner-copy">
+            Bipe o QR original com a pistola. O sistema extrai o código correto
+            — incluindo o ID do Mercado Livre quando o leitor envia o JSON.
+          </p>
+          <div className="hid-scanner-state">
+            {message || "Aguardando leitura da pistola"}
           </div>
         </div>
 
         <div className="card scanner-manual">
-          <h3>Adicionar código</h3>
-
-          <div className="inline-form">
-            <input
-              value={raw}
-              onChange={e => setRaw(e.target.value)}
-              placeholder="Digite ou cole o código"
-            />
-
-            <button
-              className="primary"
-              onClick={() => save(raw)}
-            >
-              <Check size={16} /> Adicionar
-            </button>
-          </div>
-
-          {message && <p className="feedback">{message}</p>}
+          <h3>Pistola HID</h3>
+          <p className="feedback">
+            A leitura é capturada diretamente pelo teclado HID. Não é necessário
+            abrir a câmera nem digitar o código manualmente.
+          </p>
+          {raw && (
+            <p className="feedback" title={raw}>
+              Leitura recebida; identificando o código do pacote…
+            </p>
+          )}
+          <input
+            ref={hidInput}
+            className="hid-input"
+            aria-label="Entrada da pistola HID"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            value={raw}
+            onChange={event => onHidInput(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                if (hidTimer.current) clearTimeout(hidTimer.current);
+                const captured = hidBuffer.current;
+                if (captured.trim()) void save(captured);
+              }
+            }}
+            onBlur={() => window.setTimeout(() => hidInput.current?.focus(), 80)}
+          />
 
           <div className="scan-list">
             {codes.map(c => (

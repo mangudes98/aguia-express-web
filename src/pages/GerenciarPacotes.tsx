@@ -150,6 +150,7 @@ const styles = `
 .pm-blocked{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:14px;border:1px solid #fecaca;border-radius:12px;background:#fff6f6}
 .pm-blocked strong{display:block;color:#b42318}
 .pm-blocked p{margin:5px 0;color:#5c6676;font-size:13px}
+.pm-blocked-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .pm-list{display:grid;gap:9px;margin-top:16px}
 .pm-package{display:grid;grid-template-columns:50px minmax(0,1fr) auto;gap:12px;align-items:center;border:1px solid #e6eaf0;border-radius:12px;padding:10px 12px}
 .pm-package svg{max-width:48px;height:auto}
@@ -353,11 +354,7 @@ export default function GerenciarPacotes() {
     }
   }
 
-  async function addScannedPackage(
-    raw: string,
-    allowCancelled = false,
-    skipBlockedCheck = false,
-  ) {
+  async function addScannedPackage(raw: string, allowCancelled = false) {
     const scanned = extractScannedCode(raw);
     if (!scanned?.code) {
       feedbackBeep(false);
@@ -368,11 +365,6 @@ export default function GerenciarPacotes() {
     hidBuffer.current = "";
     setHidValue("");
     if (hidInput.current) hidInput.current.value = "";
-    if (blocked && !skipBlockedCheck) {
-      feedbackBeep(false);
-      setFeedback("Resolva o pacote bloqueado antes de continuar a bipagem.", "error");
-      return;
-    }
     if (
       processing.current.has(packageCode) ||
       packages.some((item) => item.id === packageCode)
@@ -475,7 +467,7 @@ export default function GerenciarPacotes() {
   }
 
   async function unlockAndContinue() {
-    if (!blocked) return;
+    if (!blocked || blocked.status === "CANCELADO") return;
     const current = blocked;
     try {
       await updateDoc(doc(db, "controle_codigos", current.code), { erro: false });
@@ -484,15 +476,24 @@ export default function GerenciarPacotes() {
         "Bloqueio de erro removido. O pacote continua na transferência.",
         "success",
       );
-      await addScannedPackage(
-        current.raw,
-        current.status === "CANCELADO",
-        true,
-      );
+      await addScannedPackage(current.raw);
     } catch (error) {
       console.error("Falha ao desbloquear pacote:", error);
       setFeedback("Não foi possível desbloquear o pacote.", "error");
     }
+  }
+
+  function keepBlockedAndContinue() {
+    if (!blocked) return;
+    const current = blocked;
+    setBlocked(null);
+    setFeedback(
+      current.status === "CANCELADO"
+        ? `O pacote ${current.code} continua CANCELADO e foi ignorado. Pode continuar a bipagem.`
+        : `O pacote ${current.code} continua bloqueado e foi ignorado. Pode continuar a bipagem.`,
+      "info",
+    );
+    window.setTimeout(() => hidInput.current?.focus(), 30);
   }
 
   async function finishTransfer() {
@@ -944,17 +945,31 @@ export default function GerenciarPacotes() {
                       {blocked.status === "CANCELADO" ? "CANCELADO" : "ERRO"}
                     </strong>
                     <p>
-                      Desbloqueie para liberar a entrada na transferência. O
-                      status não é alterado nesta etapa.
+                      {blocked.status === "CANCELADO"
+                        ? "Pacotes CANCELADOS permanecem bloqueados. Ignore este pacote para continuar."
+                        : "Deseja desbloquear este pacote com ERRO? Se não, ele continuará bloqueado e você poderá seguir com os próximos."}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    className="pm-button primary"
-                    onClick={() => void unlockAndContinue()}
-                  >
-                    Desbloquear pacote
-                  </button>
+                  <div className="pm-blocked-actions">
+                    {blocked.status !== "CANCELADO" && (
+                      <button
+                        type="button"
+                        className="pm-button primary"
+                        onClick={() => void unlockAndContinue()}
+                      >
+                        Sim, desbloquear
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="pm-button"
+                      onClick={keepBlockedAndContinue}
+                    >
+                      {blocked.status === "CANCELADO"
+                        ? "Entendi, continuar"
+                        : "Não, continuar bipagem"}
+                    </button>
+                  </div>
                 </div>
               )}
 

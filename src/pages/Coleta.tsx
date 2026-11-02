@@ -268,12 +268,14 @@ const COLETA_CSS = `
   grid-row:span 2;display:flex;align-items:center;justify-content:center
 }
 
-/* SOMENTE O FUNDO DO QR MUDA */
+/* O STATUS MARCA APENAS O CONTORNO; O QR E O FUNDO PERMANECEM BRANCOS. */
 .coleta-shell .qr-wrap.error{
-  background:#ff5b5b!important
+  background:#fff!important;
+  box-shadow:inset 0 0 0 5px #ff5b5b
 }
 .coleta-shell .qr-wrap.uploaded{
-  background:#439cf7!important
+  background:#fff!important;
+  box-shadow:inset 0 0 0 5px #439cf7
 }
 .coleta-shell .qr-wrap svg{
   display:block;
@@ -322,16 +324,16 @@ const COLETA_CSS = `
   display:flex;align-items:center;justify-content:center;overflow:hidden
 }
 
-/* ERRO = APENAS FUNDO DO QR VERMELHO */
+/* ERRO = CONTORNO VERMELHO, SEM PINTAR O FUNDO OU O QR. */
 .coleta-shell .viewer .qr-present.error{
-  background:#ff5b5b!important;
-  border-color:#ff5b5b!important
+  background:#fff!important;
+  border:5px solid #ff5b5b!important
 }
 
-/* SUBIU = APENAS FUNDO DO QR AZUL */
+/* SUBIU = CONTORNO AZUL, SEM PINTAR O FUNDO OU O QR. */
 .coleta-shell .viewer .qr-present.uploaded{
-  background:#439cf7!important;
-  border-color:#439cf7!important
+  background:#fff!important;
+  border:5px solid #439cf7!important
 }
 
 /* RISCOS DO QR SEMPRE PRETOS */

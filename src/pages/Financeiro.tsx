@@ -5914,11 +5914,7 @@ export default function Financeiro() {
 
                         <input
                           type="date"
-                          value={
-                            dataInicioFechamento
-                              .toISOString()
-                              .slice(0, 10)
-                          }
+                          value={dataParaInput(dataInicioFechamento)}
                           onChange={(e) =>
                             setDataInicioFechamento(
                               new Date(
@@ -5940,11 +5936,7 @@ export default function Financeiro() {
 
                         <input
                           type="date"
-                          value={
-                            dataFimFechamento
-                              .toISOString()
-                              .slice(0, 10)
-                          }
+                          value={dataParaInput(dataFimFechamento)}
                           onChange={(e) =>
                             setDataFimFechamento(
                               new Date(

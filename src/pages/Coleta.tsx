@@ -338,6 +338,11 @@ const COLETA_CSS = `
 .coleta-shell .viewer-nav{display:flex;gap:10px;margin-top:8px}
 .coleta-shell .viewer .action-row{justify-content:center}
 .coleta-shell .viewer .action-row button{min-height:38px}
+.coleta-shell .viewer-keyboard-help{margin:0;color:var(--muted);font-size:12px}
+.coleta-shell .viewer-keyboard-help kbd{
+  padding:2px 6px;border:1px solid #d0d5dd;border-radius:5px;
+  background:#f9fafb;color:#344054;font:inherit;font-weight:700
+}
 
 /* QR DA VISUALIZAÇÃO */
 .coleta-shell .qr-present{
@@ -1416,6 +1421,7 @@ function ListaTipo({
   const [index, setIndex] = useState(0);
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>("todos");
   const codigoPendente = useRef<string | null>(null);
+  const statusEmAtualizacao = useRef(false);
 
   useEffect(() => {
     return onSnapshot(
@@ -1482,14 +1488,21 @@ function ListaTipo({
   const current = filtered[index] || null;
 
   useEffect(() => {
-    if (!visual || filtered.length < 2) return;
+    if (!visual) return;
 
     function handleViewerNavigation(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isEditing =
         target?.isContentEditable ||
         ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "");
-      if (isEditing) return;
+      if (
+        isEditing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) {
+        return;
+      }
 
       if (event.key === "ArrowLeft") {
         event.preventDefault();
@@ -1499,12 +1512,27 @@ function ListaTipo({
         setIndex(currentIndex =>
           Math.min(filtered.length - 1, currentIndex + 1)
         );
+      } else if (current) {
+        const key = event.key.toLowerCase();
+        const field: "erro" | "cancelado" | "subiu" | null =
+          event.code === "Space" || event.key === " "
+            ? "subiu"
+            : key === "r"
+              ? "erro"
+              : key === "c"
+                ? "cancelado"
+                : null;
+
+        if (field && !event.repeat) {
+          event.preventDefault();
+          void markCurrent(field);
+        }
       }
     }
 
     window.addEventListener("keydown", handleViewerNavigation);
     return () => window.removeEventListener("keydown", handleViewerNavigation);
-  }, [visual, filtered.length]);
+  }, [visual, filtered, index, current?.id, filtroStatus]);
 
   async function mark(
     id: string,
@@ -1527,7 +1555,8 @@ function ListaTipo({
   async function markCurrent(
     field: "erro" | "cancelado" | "subiu"
   ) {
-    if (!current) return;
+    if (!current || statusEmAtualizacao.current) return;
+    statusEmAtualizacao.current = true;
 
     const proximo = filtered[index + 1];
     const anterior = filtered[index - 1];
@@ -1546,6 +1575,8 @@ function ListaTipo({
     } catch {
       codigoPendente.current = null;
       alert("Não foi possível atualizar o status do pacote.");
+    } finally {
+      statusEmAtualizacao.current = false;
     }
   }
 
@@ -1706,6 +1737,11 @@ function ListaTipo({
                   <Upload size={15} /> SUBIU
                 </button>
               </div>
+
+              <p className="viewer-keyboard-help">
+                Atalhos: <kbd>Espaço</kbd> Subiu · <kbd>R</kbd> Erro ·{" "}
+                <kbd>C</kbd> Cancelado
+              </p>
 
               <div className="viewer-nav">
                 <button

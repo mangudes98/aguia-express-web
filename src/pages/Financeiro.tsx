@@ -2569,6 +2569,30 @@ export default function Financeiro() {
       ).sort((a, b) => b.total - a.total);
     }, [repassesFiltrados]);
 
+  function pacotesDaEmpresaNoPeriodo(
+    empresa: AnyDoc,
+    inicio: Date,
+    fim: Date
+  ) {
+    const codigos = new Set<string>();
+    const selecionados: AnyDoc[] = [];
+
+    pacotes.forEach((pacote) => {
+      if (!pacotePertenceEmpresa(pacote, empresa)) return;
+
+      const dataPacote = dataPacoteEmpresa(pacote);
+      if (!dentroPeriodo(dataPacote, inicio, fim)) return;
+
+      const codigo = String(pacote.codigo || pacote.id);
+      if (codigos.has(codigo)) return;
+
+      codigos.add(codigo);
+      selecionados.push(pacote);
+    });
+
+    return selecionados;
+  }
+
   function calcularEmpresa(
     empresa: AnyDoc,
     inicio: Date,
@@ -2578,42 +2602,7 @@ export default function Financeiro() {
     let qtdShopee = 0;
     let qtdAvulso = 0;
 
-    const codigos =
-      new Set<string>();
-
-    pacotes.forEach((pacote) => {
-      if (
-        !pacotePertenceEmpresa(
-          pacote,
-          empresa
-        )
-      ) {
-        return;
-      }
-
-       const dataPacote =
-         dataPacoteEmpresa(pacote);
-
-      if (
-        !dentroPeriodo(
-          dataPacote,
-          inicio,
-          fim
-        )
-      ) {
-        return;
-      }
-
-      const codigo = String(
-        pacote.codigo || pacote.id
-      );
-
-      if (codigos.has(codigo)) {
-        return;
-      }
-
-      codigos.add(codigo);
-
+    pacotesDaEmpresaNoPeriodo(empresa, inicio, fim).forEach((pacote) => {
       const tipo =
         tipoPacote(
           pacote.tipo ||
@@ -3572,13 +3561,21 @@ export default function Financeiro() {
     }
   }
 
-  function baixarCobrancaEmpresa() {
+  function baixarCobrancaEmpresa(incluirCodigos = false) {
     if (
       !allowed || checkingAccess || loading || erro ||
       !empresaCalculada || confirmandoFechamento
     ) return;
 
     try {
+      const packageCodes = incluirCodigos && empresaSelecionada
+        ? pacotesDaEmpresaNoPeriodo(
+            empresaSelecionada,
+            diaInicio(dataInicioFechamento),
+            diaFim(dataFimFechamento)
+          ).map((pacote) => String(pacote.codigo || pacote.id))
+        : undefined;
+
       // Não passar o objeto completo: custos e dados de acesso são internos.
       printCompanyInvoice({
         companyName: String(empresaCalculada.empresaNome),
@@ -3592,6 +3589,7 @@ export default function Financeiro() {
         shopeeRate: empresaCalculada.valorShopee,
         adHocRate: empresaCalculada.valorAvulso,
         totalToPay: empresaCalculada.totalReceber,
+        packageCodes,
       });
     } catch (error) {
       alert(error instanceof Error ? error.message : "Não foi possível gerar a cobrança.");
@@ -6127,6 +6125,21 @@ export default function Financeiro() {
                         style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
                       >
                         <Download size={17} /> Baixar cobrança (PDF)
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => baixarCobrancaEmpresa(true)}
+                        disabled={loading || !!erro || !allowed || confirmandoFechamento}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginLeft: 8,
+                          marginTop: 8,
+                        }}
+                      >
+                        <Download size={17} /> Baixar cobrança com códigos (PDF)
                       </button>
                       <small style={{ display: "block", marginTop: 10 }}>
                         Na janela do navegador, escolha Salvar como PDF.

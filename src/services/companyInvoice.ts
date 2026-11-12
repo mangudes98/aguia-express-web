@@ -10,6 +10,7 @@ export type CompanyInvoiceData = {
   shopeeRate: number;
   adHocRate: number;
   totalToPay: number;
+  packageCodes?: string[];
 };
 
 const escapeHtml = (value: string) =>
@@ -23,6 +24,7 @@ const escapeHtml = (value: string) =>
 
 export function buildCompanyInvoiceHtml(invoice: CompanyInvoiceData): string {
   const counts = [invoice.marketCount, invoice.shopeeCount, invoice.adHocCount];
+  const packageCodes = invoice.packageCodes ?? [];
   const amounts = [
     invoice.marketRate, invoice.shopeeRate, invoice.adHocRate, invoice.totalToPay,
   ];
@@ -33,7 +35,9 @@ export function buildCompanyInvoiceHtml(invoice: CompanyInvoiceData): string {
     ) ||
     invoice.periodEnd < invoice.periodStart ||
     counts.some(count => !Number.isSafeInteger(count) || count < 0) ||
-    amounts.some(amount => !Number.isFinite(amount) || amount < 0)
+    amounts.some(amount => !Number.isFinite(amount) || amount < 0) ||
+    !Array.isArray(packageCodes) ||
+    packageCodes.some(code => typeof code !== "string")
   ) {
     throw new Error("Os dados da cobrança são inválidos.");
   }
@@ -68,6 +72,18 @@ export function buildCompanyInvoiceHtml(invoice: CompanyInvoiceData): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 60);
   const title = `Fatura_${companySlug}_${fileDate(invoice.periodStart)}_${fileDate(invoice.periodEnd)}`;
+  const codesSection = invoice.packageCodes === undefined
+    ? ""
+    : `<section class="package-codes">
+      <h2>Códigos dos pacotes</h2>
+      <p>${number.format(packageCodes.length)} pacotes incluídos nesta cobrança.</p>
+      ${packageCodes.length
+        ? `<table>
+            <thead><tr><th scope="col">Nº</th><th scope="col">Código do pacote</th></tr></thead>
+            <tbody>${packageCodes.map((code, index) => `<tr><td>${number.format(index + 1)}</td><td><code>${escapeHtml(code)}</code></td></tr>`).join("")}</tbody>
+          </table>`
+        : "<p>Nenhum código encontrado no período selecionado.</p>"}
+    </section>`;
 
   // Não serializar o objeto do fechamento: somente a projeção pública acima.
   return `<!doctype html>
@@ -93,6 +109,9 @@ export function buildCompanyInvoiceHtml(invoice: CompanyInvoiceData): string {
     th { background: #a87500; color: #fff; }
     th:first-child, td:first-child { text-align: left; }
     tr { break-inside: avoid; }
+    thead { display: table-header-group; }
+    .package-codes { break-before: page; page-break-before: always; }
+    .package-codes code { overflow-wrap: anywhere; }
     .total { border: 1px solid #a87500; background: #fff7e2; padding: 18px;
       margin: 24px 0; break-inside: avoid; }
     .total strong { display: block; font-size: 28px; margin-top: 6px; }
@@ -119,6 +138,7 @@ export function buildCompanyInvoiceHtml(invoice: CompanyInvoiceData): string {
     </table>
     <p><b>Total de pacotes coletados: ${number.format(counts.reduce((sum, count) => sum + count, 0))}</b></p>
     <section class="total">TOTAL A PAGAR PELA EMPRESA<strong>${money.format(invoice.totalToPay)}</strong></section>
+    ${codesSection}
   </main>
 </body>
 </html>`;

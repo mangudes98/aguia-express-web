@@ -55,6 +55,19 @@ type PendingCollectionCode = {
   raw: string;
 };
 
+function decodeRouteSegment(segment?: string): string {
+  if (!segment) return "";
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function coletaPath(pastaId: string, suffix = ""): string {
+  return `/coletas/${encodeURIComponent(pastaId)}${suffix}`;
+}
+
 const COLETA_CSS = `
 .coleta-shell{
   --gold:#a87500;
@@ -488,8 +501,10 @@ export default function Coleta() {
   const navigate = useNavigate();
 
   const parts = location.pathname.split("/").filter(Boolean);
-  const pastaId = parts[1];
-  const tipoRoute = parts[2] === "tipo" ? parts[3] : undefined;
+  const pastaId = decodeRouteSegment(parts[1]);
+  const routeSection = decodeRouteSegment(parts[2]);
+  const tipoRoute =
+    routeSection === "tipo" ? decodeRouteSegment(parts[3]) : undefined;
 
   // CARREGANDO PERMISSÃO
   if (checkingAccess) {
@@ -664,7 +679,7 @@ export default function Coleta() {
     content = (
       <Scanner
         pastaId={pastaId}
-        onClose={() => navigate(`/coletas/${pastaId}`)}
+        onClose={() => navigate(coletaPath(pastaId))}
       />
     );
   } else if (pastaId && tipoRoute) {
@@ -841,7 +856,7 @@ function Pastas() {
                 <button
                   className="collection-card"
                   key={p.id}
-                  onClick={() => navigate(`/coletas/${p.id}`)}
+                  onClick={() => navigate(coletaPath(p.id))}
                 >
                   <span className="icon-box gold">
                     <Folder size={21} />
@@ -961,7 +976,7 @@ function PastaDetail({ pastaId }: { pastaId: string }) {
           <>
             <button
               className="secondary"
-              onClick={() => navigate(`/coletas/${pastaId}/scanner`)}
+              onClick={() => navigate(coletaPath(pastaId, "/scanner"))}
             >
               <QrCode size={16} /> Escanear QR
             </button>
@@ -1075,7 +1090,7 @@ function PastaDetail({ pastaId }: { pastaId: string }) {
             className={`type-card ${color}`}
             key={t}
             onClick={() =>
-              navigate(`/coletas/${pastaId}/tipo/${t}`)
+              navigate(coletaPath(pastaId, `/tipo/${encodeURIComponent(t)}`))
             }
           >
             <span className="icon-box">
@@ -1273,7 +1288,7 @@ function Scanner({
       <Header
         title="Scanner coleta"
         subtitle={`${codes.length} pacote${codes.length === 1 ? "" : "s"} lido${codes.length === 1 ? "" : "s"}`}
-        back={`/coletas/${pastaId}`}
+        back={coletaPath(pastaId)}
       />
 
       <div className="scanner-layout">
@@ -1623,7 +1638,7 @@ function ListaTipo({
       <Header
         title={tipoLabel(filter)}
         subtitle={`${filtered.length} pacotes nesta categoria`}
-        back={`/coletas/${pastaId}`}
+        back={coletaPath(pastaId)}
         action={
           <>
             <div className="search compact">

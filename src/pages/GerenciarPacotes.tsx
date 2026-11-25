@@ -537,7 +537,7 @@ export default function GerenciarPacotes() {
           batch.set(movementRef, {
             codigo: item.id,
             statusAnterior: item.status,
-            statusNovo,
+            statusNovo: statusNew,
             usuarioAnterior: item.data.usuario || "",
             usuarioNovo: destination.id,
             alteradoPor: operator,

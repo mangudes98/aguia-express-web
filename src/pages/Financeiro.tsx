@@ -22,6 +22,7 @@ import {
   History,
   LockKeyhole,
   Package,
+  PackageCheck,
   Plus,
   RefreshCw,
   Save,
@@ -2747,6 +2748,7 @@ export default function Financeiro() {
         qtdAvulso,
 
       totalReceber,
+      totalEntregues: codigosRepasse.size,
       totalRepasse,
       totalRepasseML,
       totalRepasseShopee,
@@ -6028,6 +6030,22 @@ export default function Financeiro() {
                         {br(
                           empresaCalculada.lucro
                         )}
+                      </strong>
+                    </div>
+
+                    <div
+                      className="stat-card"
+                    >
+                      <div className="stat-icon green">
+                        <PackageCheck />
+                      </div>
+
+                      <span>
+                        Entregues no período
+                      </span>
+
+                      <strong>
+                        {empresaCalculada.totalEntregues}
                       </strong>
                     </div>
                   </div>

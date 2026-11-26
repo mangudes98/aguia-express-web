@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  runTransaction,
   setDoc,
   updateDoc,
   writeBatch,
@@ -43,6 +44,11 @@ type ScannedPackage = {
   data: Record<string, any>;
   order: number;
 };
+type UnregisteredPackage = {
+  code: string;
+  raw: string;
+  type: string;
+};
 type ScreenMode = "transfer" | "create";
 type PackageType = "MERCADO LIVRE" | "SHOPEE" | "MAGALU" | "AVULSO";
 
@@ -54,7 +60,9 @@ const packageTypes: PackageType[] = [
 ];
 
 function labelType(value: unknown): PackageType | string {
-  const type = String(value || "AVULSO").trim().toUpperCase();
+  const type = String(value || "AVULSO")
+    .trim()
+    .toUpperCase();
   if (type === "MERCADO_LIVRE" || type === "MERCADO LIVRE") {
     return "MERCADO LIVRE";
   }
@@ -141,6 +149,7 @@ const styles = `
 .pm-scan{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;margin-top:14px;padding:16px;border:1px dashed #b9c1cf;border-radius:14px;background:#fafbfd}
 .pm-scan strong{display:block;font-size:15px}
 .pm-scan small{display:block;color:#667085;margin-top:4px}
+.pm-manual-code{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-top:14px}
 .pm-count{min-width:78px;text-align:center;border-radius:12px;padding:9px 12px;background:#111827;color:#fff}
 .pm-count b{display:block;font-size:24px;line-height:1.1}
 .pm-count small{color:#d0d5dd}
@@ -174,7 +183,7 @@ const styles = `
 .pm-label-print-target{position:relative}
 .package-manager .spin{animation:pm-spin .8s linear infinite}
 @keyframes pm-spin{to{transform:rotate(360deg)}}
-@media(max-width:720px){.pm-grid{grid-template-columns:1fr}.pm-span{grid-column:auto}.pm-head{flex-direction:column}.pm-scan{grid-template-columns:1fr auto}.pm-panel{padding:15px}.pm-package{grid-template-columns:44px minmax(0,1fr)}.pm-package>.pm-pill{grid-column:2}}
+@media(max-width:720px){.pm-grid{grid-template-columns:1fr}.pm-span{grid-column:auto}.pm-head{flex-direction:column}.pm-scan{grid-template-columns:1fr auto}.pm-manual-code{grid-template-columns:1fr}.pm-panel{padding:15px}.pm-package{grid-template-columns:44px minmax(0,1fr)}.pm-package>.pm-pill{grid-column:2}}
 @media print{
   @page{size:100mm 150mm;margin:0}
   html,body{width:100mm!important;height:150mm!important;margin:0!important;padding:0!important;background:#fff!important}
@@ -195,8 +204,16 @@ export default function GerenciarPacotes() {
   const [packages, setPackages] = useState<ScannedPackage[]>([]);
   const [pendingCodes, setPendingCodes] = useState<string[]>([]);
   const [hidValue, setHidValue] = useState("");
+  const [manualCode, setManualCode] = useState("");
+  const [unregisteredPackage, setUnregisteredPackage] =
+    useState<UnregisteredPackage | null>(null);
+  const [registrationFolderId, setRegistrationFolderId] = useState("");
+  const [savingUnregisteredPackage, setSavingUnregisteredPackage] =
+    useState(false);
   const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"info" | "error" | "success">("info");
+  const [messageType, setMessageType] = useState<"info" | "error" | "success">(
+    "info",
+  );
   const [blocked, setBlocked] = useState<{
     code: string;
     raw: string;
@@ -280,7 +297,9 @@ export default function GerenciarPacotes() {
               return {
                 id: item.id,
                 name,
-                companyName: String(data.empresaNome || data.nomeEmpresa || name),
+                companyName: String(
+                  data.empresaNome || data.nomeEmpresa || name,
+                ),
                 data,
               };
             })
@@ -323,12 +342,17 @@ export default function GerenciarPacotes() {
   const scannedCount = packages.length;
 
   useEffect(() => {
-    if (mode !== "transfer" || !destination || blocked) return;
+    if (mode !== "transfer" || !destination || blocked || unregisteredPackage) {
+      return;
+    }
     const handle = window.setTimeout(() => hidInput.current?.focus(), 30);
     return () => window.clearTimeout(handle);
-  }, [destination, mode, blocked]);
+  }, [destination, mode, blocked, unregisteredPackage]);
 
-  function setFeedback(text: string, type: "info" | "error" | "success" = "info") {
+  function setFeedback(
+    text: string,
+    type: "info" | "error" | "success" = "info",
+  ) {
     setMessage(text);
     setMessageType(type);
   }
@@ -354,12 +378,18 @@ export default function GerenciarPacotes() {
     }
   }
 
-  async function addScannedPackage(raw: string, allowCancelled = false) {
+  async function addScannedPackage(
+    raw: string,
+    allowCancelled = false,
+  ): Promise<boolean> {
     const scanned = extractScannedCode(raw);
     if (!scanned?.code) {
       feedbackBeep(false);
-      setFeedback("Não consegui extrair o código lido. Tente bipar novamente.", "error");
-      return;
+      setFeedback(
+        "Não consegui extrair o código lido. Tente bipar novamente.",
+        "error",
+      );
+      return false;
     }
     const packageCode = scanned.code.trim();
     hidBuffer.current = "";
@@ -367,11 +397,15 @@ export default function GerenciarPacotes() {
     if (hidInput.current) hidInput.current.value = "";
     if (
       processing.current.has(packageCode) ||
-      packages.some((item) => item.id === packageCode)
+      packages.some((item) => item.id === packageCode) ||
+      unregisteredPackage?.code === packageCode
     ) {
       feedbackBeep(false);
-      setFeedback(`O pacote ${packageCode} já foi bipado nesta transferência.`, "error");
-      return;
+      setFeedback(
+        `O pacote ${packageCode} já foi bipado nesta transferência.`,
+        "error",
+      );
+      return false;
     }
 
     processing.current.add(packageCode);
@@ -379,9 +413,18 @@ export default function GerenciarPacotes() {
     try {
       const snapshot = await getDoc(doc(db, "controle_codigos", packageCode));
       if (!snapshot.exists()) {
+        setUnregisteredPackage({
+          code: packageCode,
+          raw,
+          type: readableType({}, scanned),
+        });
+        setRegistrationFolderId("");
         feedbackBeep(false);
-        setFeedback(`Pacote ${packageCode} não encontrado no sistema.`, "error");
-        return;
+        setFeedback(
+          `Pacote ${packageCode} não encontrado. Escolha uma pasta de Coletas para cadastrá-lo.`,
+          "error",
+        );
+        return false;
       }
 
       const data = snapshot.data();
@@ -395,17 +438,20 @@ export default function GerenciarPacotes() {
             : `Pacote ${packageCode} está bloqueado com ERRO.`,
           "error",
         );
-        return;
+        return false;
       }
 
       const allowedStatuses = ["COLETADO", "ROTA", "AUSENTE", "ENTREGUE"];
-      if (!allowedStatuses.includes(status) && !(allowCancelled && status === "CANCELADO")) {
+      if (
+        !allowedStatuses.includes(status) &&
+        !(allowCancelled && status === "CANCELADO")
+      ) {
         feedbackBeep(false);
         setFeedback(
           `O pacote ${packageCode} está com status ${formatStatus(status)} e não pode ser transferido.`,
           "error",
         );
-        return;
+        return false;
       }
 
       const savedRaw = typeof data.raw === "string" ? data.raw : "";
@@ -427,19 +473,114 @@ export default function GerenciarPacotes() {
       ]);
       feedbackBeep(true);
       setFeedback(`Pacote ${packageCode} reconhecido.`, "success");
+      return true;
     } catch (error) {
       console.error("Falha ao validar pacote bipado:", error);
       feedbackBeep(false);
       setFeedback(`Falha ao consultar o pacote ${packageCode}.`, "error");
+      return false;
     } finally {
       processing.current.delete(packageCode);
-      setPendingCodes((current) => current.filter((item) => item !== packageCode));
+      setPendingCodes((current) =>
+        current.filter((item) => item !== packageCode),
+      );
       hidBuffer.current = "";
       if (hidInput.current) hidInput.current.value = "";
     }
   }
 
+  async function registerUnregisteredPackage() {
+    const pending = unregisteredPackage;
+    const selectedFolderForPackage = folders.find(
+      (folder) => folder.id === registrationFolderId,
+    );
+    if (!pending || !selectedFolderForPackage || savingUnregisteredPackage) {
+      return;
+    }
+
+    setSavingUnregisteredPackage(true);
+    const timestamp = Timestamp.now();
+    const packageRef = doc(db, "controle_codigos", pending.code);
+    const folderCodeRef = doc(
+      db,
+      "coletas",
+      selectedFolderForPackage.id,
+      "codigos",
+      pending.code,
+    );
+    const packageData = {
+      codigo: pending.code,
+      status: "COLETADO",
+      usuario: auth.currentUser?.email?.trim().toLowerCase() || "",
+      empresa: selectedFolderForPackage.id,
+      tipo: pending.type,
+      raw: pending.raw,
+      erro: false,
+      cancelado: false,
+      subiu: false,
+      data: timestamp,
+      historico: [{ status: "COLETADO", dataHora: timestamp }],
+    };
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const existing = await transaction.get(packageRef);
+        if (existing.exists()) {
+          throw new Error("PACKAGE_ALREADY_EXISTS");
+        }
+        transaction.set(packageRef, packageData);
+        transaction.set(
+          folderCodeRef,
+          { codigo: pending.code, data: timestamp },
+          { merge: true },
+        );
+      });
+
+      packageOrder.current += 1;
+      setPackages((current) => [
+        ...current,
+        {
+          id: pending.code,
+          code: pending.code,
+          raw: pending.raw,
+          type: pending.type,
+          status: "COLETADO",
+          data: packageData,
+          order: packageOrder.current,
+        },
+      ]);
+      setUnregisteredPackage(null);
+      setRegistrationFolderId("");
+      setManualCode("");
+      feedbackBeep(true);
+      setFeedback(
+        `Pacote ${pending.code} cadastrado em ${selectedFolderForPackage.name} e incluído na transferência.`,
+        "success",
+      );
+    } catch (error) {
+      console.error("Falha ao cadastrar pacote não encontrado:", error);
+      if (
+        error instanceof Error &&
+        error.message === "PACKAGE_ALREADY_EXISTS"
+      ) {
+        setUnregisteredPackage(null);
+        setFeedback(
+          `O pacote ${pending.code} acabou de ser cadastrado. Bipe novamente para validá-lo.`,
+          "error",
+        );
+      } else {
+        setFeedback(
+          "Não foi possível cadastrar o pacote. Ele continua aguardando a seleção da pasta.",
+          "error",
+        );
+      }
+    } finally {
+      setSavingUnregisteredPackage(false);
+    }
+  }
+
   function onHidInput(value: string) {
+    if (unregisteredPackage || blocked) return;
     hidBuffer.current = value;
     setHidValue(value);
     if (hidTimer.current) clearTimeout(hidTimer.current);
@@ -466,11 +607,22 @@ export default function GerenciarPacotes() {
     }
   }
 
+  async function submitManualCode() {
+    const value = manualCode.trim();
+    if (!value || isBusy || blocked || unregisteredPackage) return;
+    if (await addScannedPackage(value)) {
+      setManualCode("");
+      hidInput.current?.focus();
+    }
+  }
+
   async function unlockAndContinue() {
     if (!blocked || blocked.status === "CANCELADO") return;
     const current = blocked;
     try {
-      await updateDoc(doc(db, "controle_codigos", current.code), { erro: false });
+      await updateDoc(doc(db, "controle_codigos", current.code), {
+        erro: false,
+      });
       setBlocked(null);
       setFeedback(
         "Bloqueio de erro removido. O pacote continua na transferência.",
@@ -581,10 +733,16 @@ export default function GerenciarPacotes() {
       } while (true);
       setCode(candidate);
       setLabel(null);
-      setFeedback("Código único gerado. Salve para cadastrar o pacote.", "success");
+      setFeedback(
+        "Código único gerado. Salve para cadastrar o pacote.",
+        "success",
+      );
     } catch (error) {
       console.error("Falha ao gerar código único:", error);
-      setFeedback("Não foi possível verificar a disponibilidade do código.", "error");
+      setFeedback(
+        "Não foi possível verificar a disponibilidade do código.",
+        "error",
+      );
     }
   }
 
@@ -648,7 +806,8 @@ export default function GerenciarPacotes() {
       ]
         .filter(Boolean)
         .join(", ");
-      const companyName = selectedFolder?.companyName || selectedFolder?.name || "";
+      const companyName =
+        selectedFolder?.companyName || selectedFolder?.name || "";
       const packageData = {
         codigo: packageCode,
         empresa: folderId,
@@ -681,7 +840,10 @@ export default function GerenciarPacotes() {
         recipient: recipient.trim(),
         note: note.trim(),
       });
-      setFeedback("QR criado. A etiqueta já está pronta para imprimir.", "success");
+      setFeedback(
+        "QR criado. A etiqueta já está pronta para imprimir.",
+        "success",
+      );
     } catch (error) {
       console.error("Falha ao criar QR:", error);
       setFeedback("Não foi possível salvar o QR no sistema.", "error");
@@ -713,10 +875,7 @@ export default function GerenciarPacotes() {
     .filter(Boolean)
     .join(", ");
   const labelCompany =
-    label?.company ||
-    selectedFolder?.companyName ||
-    selectedFolder?.name ||
-    "";
+    label?.company || selectedFolder?.companyName || selectedFolder?.name || "";
   const displayLabel = label || {
     code: code.trim().toUpperCase(),
     type: packageType,
@@ -861,7 +1020,11 @@ export default function GerenciarPacotes() {
                 <button
                   type="button"
                   className="pm-button"
-                  disabled={packages.length > 0 || isBusy}
+                  disabled={
+                    packages.length > 0 ||
+                    isBusy ||
+                    Boolean(unregisteredPackage)
+                  }
                   onClick={() => {
                     setDestination(null);
                     setDestinationQuery("");
@@ -869,6 +1032,39 @@ export default function GerenciarPacotes() {
                   }}
                 >
                   Trocar usuário
+                </button>
+              </div>
+
+              <div className="pm-actions" style={{ marginTop: 14 }}>
+                <button
+                  type="button"
+                  className="pm-button"
+                  disabled={!packages.length || isBusy}
+                  onClick={() => {
+                    setPackages([]);
+                    setFeedback("Lista de bipagem limpa.");
+                  }}
+                >
+                  <X size={16} /> Limpar lista
+                </button>
+                <button
+                  type="button"
+                  className="pm-button primary"
+                  data-testid="package-transfer-finish"
+                  disabled={
+                    !packages.length ||
+                    isBusy ||
+                    Boolean(blocked) ||
+                    Boolean(unregisteredPackage)
+                  }
+                  onClick={() => void finishTransfer()}
+                >
+                  {savingTransfer ? (
+                    <LoaderCircle size={16} className="spin" />
+                  ) : (
+                    <Check size={16} />
+                  )}
+                  Finalizar e enviar para rota
                 </button>
               </div>
 
@@ -880,10 +1076,51 @@ export default function GerenciarPacotes() {
                     completo no Firestore e identifica o código operacional.
                   </small>
                 </div>
-                <div className="pm-count" aria-label={`${scannedCount} pacotes bipados`}>
+                <div
+                  className="pm-count"
+                  aria-label={`${scannedCount} pacotes bipados`}
+                >
                   <b>{scannedCount}</b>
                   <small>BIPADOS</small>
                 </div>
+              </div>
+              <div className="pm-manual-code">
+                <div className="pm-field">
+                  <label htmlFor="pm-transfer-manual-code">
+                    Digitar código manualmente
+                  </label>
+                  <input
+                    id="pm-transfer-manual-code"
+                    data-testid="package-transfer-manual-input"
+                    value={manualCode}
+                    onChange={(event) => setManualCode(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void submitManualCode();
+                      }
+                    }}
+                    placeholder="Digite ou cole o código do pacote"
+                    autoComplete="off"
+                    disabled={isBusy || Boolean(unregisteredPackage)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="pm-button"
+                  data-testid="package-transfer-manual-submit"
+                  disabled={
+                    !manualCode.trim() ||
+                    isBusy ||
+                    Boolean(blocked) ||
+                    Boolean(unregisteredPackage)
+                  }
+                  onClick={() => {
+                    void submitManualCode();
+                  }}
+                >
+                  <Search size={16} /> Consultar código
+                </button>
               </div>
               <input
                 ref={hidInput}
@@ -897,14 +1134,22 @@ export default function GerenciarPacotes() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
+                    if (blocked || unregisteredPackage) return;
                     const raw = hidBuffer.current;
                     if (hidTimer.current) clearTimeout(hidTimer.current);
                     if (raw.trim()) void addScannedPackage(raw);
                   }
                 }}
                 onBlur={() => {
-                  if (!blocked && mode === "transfer") {
-                    window.setTimeout(() => hidInput.current?.focus(), 80);
+                  if (!blocked && !unregisteredPackage && mode === "transfer") {
+                    window.setTimeout(() => {
+                      const manualEntry = document.getElementById(
+                        "pm-transfer-manual-code",
+                      );
+                      if (document.activeElement !== manualEntry) {
+                        hidInput.current?.focus();
+                      }
+                    }, 80);
                   }
                 }}
                 style={{
@@ -972,6 +1217,80 @@ export default function GerenciarPacotes() {
                   </div>
                 </div>
               )}
+              {unregisteredPackage && (
+                <div className="pm-blocked" role="alert">
+                  <div style={{ flex: 1 }}>
+                    <strong>
+                      Código {unregisteredPackage.code} ainda não cadastrado
+                    </strong>
+                    <p>
+                      Selecione a pasta de Coletas em que este pacote deve ser
+                      registrado. Depois disso, ele será incluído nesta
+                      transferência.
+                    </p>
+                    <div className="pm-field" style={{ marginTop: 10 }}>
+                      <label htmlFor="pm-transfer-registration-folder">
+                        Pasta de Coletas
+                      </label>
+                      <select
+                        id="pm-transfer-registration-folder"
+                        data-testid="package-transfer-registration-folder"
+                        value={registrationFolderId}
+                        onChange={(event) =>
+                          setRegistrationFolderId(event.target.value)
+                        }
+                        disabled={savingUnregisteredPackage}
+                      >
+                        <option value="">Selecione uma pasta</option>
+                        {folders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {!folders.length && (
+                      <small style={{ display: "block", marginTop: 8 }}>
+                        Nenhuma pasta de Coletas disponível para cadastro.
+                      </small>
+                    )}
+                  </div>
+                  <div className="pm-blocked-actions">
+                    <button
+                      type="button"
+                      className="pm-button primary"
+                      data-testid="package-transfer-register-unknown"
+                      disabled={
+                        !registrationFolderId ||
+                        savingUnregisteredPackage ||
+                        !folders.length
+                      }
+                      onClick={() => void registerUnregisteredPackage()}
+                    >
+                      {savingUnregisteredPackage ? (
+                        <LoaderCircle size={16} className="spin" />
+                      ) : (
+                        <Check size={16} />
+                      )}
+                      Cadastrar pacote
+                    </button>
+                    <button
+                      type="button"
+                      className="pm-button"
+                      disabled={savingUnregisteredPackage}
+                      onClick={() => {
+                        setUnregisteredPackage(null);
+                        setRegistrationFolderId("");
+                        setFeedback(
+                          "Cadastro cancelado. Pode continuar a bipagem.",
+                        );
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="pm-list" aria-live="polite">
                 {packages
@@ -999,34 +1318,6 @@ export default function GerenciarPacotes() {
                     Nenhum pacote bipado nesta transferência.
                   </div>
                 )}
-              </div>
-
-              <div className="pm-actions">
-                <button
-                  type="button"
-                  className="pm-button"
-                  disabled={!packages.length || isBusy}
-                  onClick={() => {
-                    setPackages([]);
-                    setFeedback("Lista de bipagem limpa.");
-                  }}
-                >
-                  <X size={16} /> Limpar lista
-                </button>
-                <button
-                  type="button"
-                  className="pm-button primary"
-                  data-testid="package-transfer-finish"
-                  disabled={!packages.length || isBusy || Boolean(blocked)}
-                  onClick={() => void finishTransfer()}
-                >
-                  {savingTransfer ? (
-                    <LoaderCircle size={16} className="spin" />
-                  ) : (
-                    <Check size={16} />
-                  )}
-                  Finalizar transferência
-                </button>
               </div>
             </>
           )}
@@ -1222,9 +1513,9 @@ export default function GerenciarPacotes() {
             <>
               {label && (
                 <div className="pm-warning">
-                  <Clipboard size={16} />
-                  O QR foi gravado na coleção <strong>controle_codigos</strong>.
-                  Confira a etiqueta antes de imprimir.
+                  <Clipboard size={16} />O QR foi gravado na coleção{" "}
+                  <strong>controle_codigos</strong>. Confira a etiqueta antes de
+                  imprimir.
                 </div>
               )}
               <div className="pm-label" ref={printLabel}>
@@ -1289,9 +1580,9 @@ export default function GerenciarPacotes() {
             </>
           )}
           <div className="pm-warning">
-            <AlertTriangle size={16} />
-            A impressão segue o modelo térmico vertical de 100 × 150 mm. Ajuste
-            a impressora para essa medida e escala de 100%.
+            <AlertTriangle size={16} />A impressão segue o modelo térmico
+            vertical de 100 × 150 mm. Ajuste a impressora para essa medida e
+            escala de 100%.
           </div>
         </div>
       )}
